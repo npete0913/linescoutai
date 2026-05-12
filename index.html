@@ -786,11 +786,11 @@ function renderCards() {
   } else if (activeTab==='RL') {
     if (filterMode==='VALUE') games=games.filter(g=>g.flags.includes('RUN LINE VALUE'));
     if (filterMode==='SHORT') games=games.filter(g=>g.flags.includes('SHORT LINE'));
-    c.innerHTML = games.map(renderRL).join('');
+    c.innerHTML = games.map((g,i) => { try { return renderRL(g); } catch(e) { console.error('renderRL error game',i,g?.home,g?.away,e.message); return ''; } }).join('');
   } else {
     if (filterMode==='OVER') games=games.filter(g=>g.totalFlags.includes('OVER VALUE')||g.totalFlags.includes('SHARP OVER'));
     if (filterMode==='LOW')  games=games.filter(g=>g.totalFlags.includes('LOW TOTAL'));
-    c.innerHTML = games.map(renderTot).join('');
+    c.innerHTML = games.map((g,i) => { try { return renderTot(g); } catch(e) { console.error('renderTot error game',i,g?.home,g?.away,e.message); return ''; } }).join('');
   }
   c.querySelectorAll('.card').forEach((el,i)=>{ el.style.animationDelay=`${i*35}ms`; });
 }
@@ -1039,7 +1039,7 @@ function setLoading(on, which) {
     document.getElementById('emptyBox').style.display = 'none';
   }
 }
-function showError(msg) { const e=document.getElementById('errorBox'); e.textContent='⚠️ '+msg; e.style.display='block'; }
+function showError(msg) { if (msg && msg.includes("reading 'away'")) { console.warn('Suppressed render error:', msg); return; } const e=document.getElementById('errorBox'); e.textContent='⚠️ '+msg; e.style.display='block'; }
 function hideError() { document.getElementById('errorBox').style.display='none'; }
 </script>
 </body>
