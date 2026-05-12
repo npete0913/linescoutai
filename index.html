@@ -806,6 +806,7 @@ function streakCell(label, s) {
 }
 
 function renderRL(g) {
+  if (!g || !g.home || !g.away) return '';
   const isV=g.flags.includes('RUN LINE VALUE'), isSh=g.flags.includes('SHORT LINE');
   const isHot=g.flags.includes('HOT STREAK'), isFade=g.flags.includes('FADE CANDIDATE');
   const cls=isV?'card-rl-value':isSh?'card-short':isHot?'card-rl-value':'card-default';
@@ -831,6 +832,7 @@ function renderRL(g) {
 
       </div>
       ${(()=>{
+        if (!g || !g.home || !g.away) return '<div></div>';
         const favIsHome = g.homeML !== null && g.awayML !== null ? g.homeML < g.awayML : g.homeML !== null && g.homeML < 0;
         const fav = favIsHome ? g.home : g.away;
         const dog = favIsHome ? g.away : g.home;
@@ -907,6 +909,7 @@ function renderRL(g) {
 }
 
 function renderTot(g) {
+  if (!g || !g.home || !g.away) return '';
   const isV=g.totalFlags.includes('OVER VALUE')||g.totalFlags.includes('SHARP OVER');
   const cls=isV?'card-tot-value':'card-default';
   const acc=isV?'<div class="card-accent accent-cyan"></div>':'';
@@ -1035,8 +1038,4 @@ function setLoading(on, which) {
     document.getElementById('emptyBox').style.display = 'none';
   }
 }
-function showError(msg) { const e=document.getElementById('errorBox'); e.textContent='⚠️ '+msg; e.style.display='block'; }
-function hideError() { document.getElementById('errorBox').style.display='none'; }
-</script>
-</body>
-</html>
+function showError(msg) { const e=document.getElementById('errorBox'); e.textContent='
