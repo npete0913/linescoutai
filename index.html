@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Line Scout AI — MLB Betting Intelligence</title>
+<meta name="description" content="Real-time MLB betting line analysis. Find run line value, over/under edges, and hot streaks powered by live odds data.">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green:  #00ff87;
+    --cyan:   #00d4ff;
+    --amber:  #ffb700;
+    --red:    #ff4757;
+    --purple: #a78bfa;
+    --orange: #f97316;
+    --bg:     #060809;
+    --bg1:    #0c0f12;
+    --bg2:    #12161b;
+    --border: rgba(255,255,255,0.06);
+    --text:   #dde1e7;
+    --muted:  #3a4050;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid texture */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(0,255,135,0.012) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,255,135,0.012) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+
+  /* Glow orb */
+  body::after {
+    content: '';
+    position: fixed; top: -200px; left: 50%; transform: translateX(-50%);
+    width: 800px; height: 400px; z-index: 0; pointer-events: none;
+    background: radial-gradient(ellipse, rgba(0,255,135,0.04) 0%, transparent 70%);
+  }
+
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+  /* ── NAV ── */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(6,8,9,0.85); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+  }
+  .nav-inner {
+    max-width: 980px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    height: 56px;
+  }
+  .nav-logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px; letter-spacing: 0.06em; color: #fff;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .nav-logo-tag {
+    font-family: 'DM Mono', monospace; font-size: 9px;
+    color: var(--green); border: 1px solid rgba(0,255,135,0.3);
+    padding: 2px 6px; border-radius: 2px; letter-spacing: 0.1em;
+  }
+  .nav-right { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); }
+  .nav-right span { color: var(--green); }
+
+  /* ── HERO ── */
+  .hero { padding: 72px 0 52px; text-align: center; }
+  .hero-eyebrow {
+    font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 500;
+    color: var(--green); letter-spacing: 0.2em;
+    border: 1px solid rgba(0,255,135,0.2); display: inline-block;
+    padding: 5px 14px; border-radius: 20px; margin-bottom: 24px;
+    background: rgba(0,255,135,0.04);
+  }
+  .hero-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(52px, 9vw, 96px);
+    letter-spacing: 0.03em; line-height: 0.95;
+    color: #fff; margin-bottom: 20px;
+  }
+  .hero-title span { color: var(--green); }
+  .hero-sub {
+    font-size: 16px; color: #5a6070; max-width: 520px;
+    margin: 0 auto 36px; line-height: 1.7;
+  }
+  .hero-pills { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 48px; }
+  .pill {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    padding: 6px 14px; border-radius: 20px; letter-spacing: 0.08em;
+    border: 1px solid; white-space: nowrap;
+  }
+  .pill-green  { color: var(--green);  border-color: rgba(0,255,135,0.25); background: rgba(0,255,135,0.05); }
+  .pill-cyan   { color: var(--cyan);   border-color: rgba(0,212,255,0.25); background: rgba(0,212,255,0.05); }
+  .pill-amber  { color: var(--amber);  border-color: rgba(255,183,0,0.25);  background: rgba(255,183,0,0.05); }
+  .pill-purple { color: var(--purple); border-color: rgba(167,139,250,0.25); background: rgba(167,139,250,0.05); }
+
+  /* ── DIVIDER ── */
+  .section-divider {
+    height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 0 0 32px;
+  }
+
+  /* ── STATS ROW ── */
+  .stats { display: flex; gap: 12px; margin-bottom: 22px; flex-wrap: wrap; }
+  .stat-box {
+    background: var(--bg1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 18px; min-width: 110px;
+    transition: border-color 0.2s;
+  }
+  .stat-box:hover { border-color: rgba(255,255,255,0.12); }
+  .stat-label { font-family: 'DM Mono', monospace; font-size: 9px; color: var(--muted); letter-spacing: 0.12em; margin-bottom: 4px; }
+  .stat-val { font-family: 'Bebas Neue', sans-serif; font-size: 30px; line-height: 1; }
+
+  /* ── BUTTONS ── */
+  .btn-row { display: flex; gap: 10px; margin-bottom: 28px; flex-wrap: wrap; align-items: center; }
+  .btn-today {
+    cursor: pointer;
+    background: linear-gradient(135deg, var(--green), #00c870);
+    color: #060809; border: none; padding: 14px 28px;
+    border-radius: 7px; font-family: 'Bebas Neue', sans-serif;
+    font-size: 17px; letter-spacing: 0.08em; transition: all 0.2s;
+  }
+  .btn-today:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(0,255,135,0.25); }
+  .btn-today:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn-tmr {
+    cursor: pointer; background: transparent;
+    color: var(--purple); border: 1.5px solid rgba(167,139,250,0.5);
+    padding: 14px 28px; border-radius: 7px;
+    font-family: 'Bebas Neue', sans-serif; font-size: 17px; letter-spacing: 0.08em;
+    transition: all 0.2s;
+  }
+  .btn-tmr:hover:not(:disabled) { background: rgba(167,139,250,0.08); transform: translateY(-2px); box-shadow: 0 8px 28px rgba(167,139,250,0.15); }
+  .btn-tmr:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .update-ts { font-family: 'DM Mono', monospace; font-size: 10px; color: #1e2530; }
+
+  /* ── TABS ── */
+  .tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tab {
+    cursor: pointer; background: transparent; color: #444;
+    border: 1px solid rgba(255,255,255,0.07); padding: 9px 20px;
+    border-radius: 6px; font-family: 'Bebas Neue', sans-serif;
+    font-size: 16px; letter-spacing: 0.06em; transition: all 0.15s;
+  }
+  .tab:hover { color: #888; border-color: rgba(255,255,255,0.15); }
+  .tab.active-rl  { background: rgba(0,255,135,0.07);  border-color: rgba(0,255,135,0.3);  color: var(--green); }
+  .tab.active-tot { background: rgba(0,212,255,0.07);  border-color: rgba(0,212,255,0.3);  color: var(--cyan); }
+  .tab.active-top { background: rgba(255,183,0,0.07); border-color: rgba(255,183,0,0.3); color: var(--amber); }
+  .tab-count { font-family: 'DM Mono', monospace; font-size: 10px; margin-left: 5px; }
+
+  /* ── FILTERS ── */
+  .filters { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  .filter {
+    cursor: pointer; background: transparent; color: #444;
+    border: 1px solid rgba(255,255,255,0.07); padding: 5px 13px;
+    border-radius: 4px; font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.07em; transition: all 0.15s;
+  }
+  .filter:hover { color: #888; }
+  .filter.active { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.2); color: #ccc; }
+
+  /* ── CARDS ── */
+  .card {
+    border-radius: 10px; padding: 18px 20px; margin-bottom: 10px;
+    position: relative; overflow: hidden; transition: transform 0.15s, box-shadow 0.15s;
+    animation: fadeUp 0.3s ease both;
+  }
+  .card:hover { transform: translateY(-1px); box-shadow: 0 4px 24px rgba(0,0,0,0.3); }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+  .card-default   { background: var(--bg1); border: 1px solid var(--border); }
+  .card-rl-value  { background: rgba(0,255,135,0.04);  border: 1px solid rgba(0,255,135,0.22); }
+  .card-tot-value { background: rgba(0,212,255,0.04);  border: 1px solid rgba(0,212,255,0.2); }
+  .card-short     { background: rgba(255,183,0,0.03);  border: 1px solid rgba(255,183,0,0.18); }
+
+  .card-accent { position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .accent-green { background: linear-gradient(90deg, var(--green), transparent); }
+  .accent-cyan  { background: linear-gradient(90deg, var(--cyan),  transparent); }
+  .accent-amber { background: linear-gradient(90deg, var(--amber), transparent); }
+
+  .card-top { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; }
+  .card-teams { flex: 1; min-width: 160px; }
+  .team-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .home-team { font-family: 'Bebas Neue', sans-serif; font-size: 18px; letter-spacing: 0.03em; color: #888; }
+  .vs-sep { font-family: 'DM Mono', monospace; font-size: 10px; color: #252d38; }
+  .away-team { font-family: 'Bebas Neue', sans-serif; font-size: 21px; color: #fff; }
+  .game-time { font-family: 'DM Mono', monospace; font-size: 10px; color: #252d38; margin-left: 2px; }
+
+  .badges { display: flex; gap: 5px; flex-wrap: wrap; }
+  .badge {
+    font-family: 'DM Mono', monospace; font-size: 9px; font-weight: 500;
+    padding: 3px 8px; border-radius: 3px; letter-spacing: 0.08em; white-space: nowrap;
+  }
+  .badge-rl   { background: var(--green);  color: #060809; }
+  .badge-sh   { background: var(--amber);  color: #060809; }
+  .badge-hot  { background: var(--red);    color: #fff; }
+  .badge-fade { background: #252d38;       color: #5a6070; }
+  .badge-ov   { background: var(--cyan);   color: #060809; }
+  .badge-low  { background: var(--purple); color: #fff; }
+  .badge-sov      { background: var(--orange); color: #fff; }
+  .badge-wind-out { background: #22c55e; color: #060809; }
+  .badge-wind-in  { background: #3b82f6; color: #fff; }
+  .badge-rain     { background: #6366f1; color: #fff; }
+
+  .card-stats { display: flex; gap: 22px; flex-wrap: wrap; }
+  .sc { text-align: center; min-width: 60px; }
+  .sc-label { font-family: 'DM Mono', monospace; font-size: 8px; color: var(--muted); letter-spacing: 0.1em; margin-bottom: 3px; }
+  .sc-val { font-family: 'Bebas Neue', sans-serif; font-size: 26px; line-height: 1; }
+  .cg { color: var(--green); }
+  .cc { color: var(--cyan); }
+  .ca { color: var(--amber); }
+  .cr { color: var(--red); }
+  .cm { color: #444; }
+  .cw { color: #fff; }
+
+  .card-note {
+    margin-top: 12px; padding: 10px 14px;
+    background: rgba(255,255,255,0.025); border-radius: 6px;
+    font-size: 12px; color: #5a6a80; line-height: 1.7;
+    border-left: 2px solid rgba(255,255,255,0.05);
+    font-style: italic;
+  }
+
+  /* ── LOADING ── */
+  .loading { text-align: center; padding: 80px 20px; }
+  .spinner {
+    width: 28px; height: 28px; margin: 0 auto 16px;
+    border: 2px solid #141820; border-top-color: var(--green);
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-family: 'DM Mono', monospace; font-size: 11px; color: #1e2530; letter-spacing: 0.1em; animation: pulse 1.5s ease infinite; }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+
+  /* ── ERROR ── */
+  .error-box {
+    background: rgba(255,71,87,0.06); border: 1px solid rgba(255,71,87,0.18);
+    border-radius: 8px; padding: 14px 18px; margin-bottom: 16px;
+    font-size: 12px; color: #cc4455; line-height: 1.7;
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* ── EMPTY ── */
+  .empty { text-align: center; padding: 80px 20px; }
+  .empty-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.3; }
+  .empty-text { font-family: 'DM Mono', monospace; font-size: 12px; color: #1e2530; letter-spacing: 0.1em; }
+
+  /* ── LEGEND ── */
+  .legend {
+    margin-top: 28px; padding: 16px 20px;
+    background: var(--bg1); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .legend-title { font-family: 'DM Mono', monospace; font-size: 9px; color: #252d38; letter-spacing: 0.12em; margin-bottom: 12px; }
+  .legend-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: flex-start; gap: 7px; }
+  .legend-desc { font-size: 11px; color: #2a3040; max-width: 160px; line-height: 1.5; }
+
+  /* ── FOOTER ── */
+  .footer {
+    margin-top: 48px; padding: 24px 0 32px;
+    border-top: 1px solid var(--border); text-align: center;
+  }
+  .footer-logo { font-family: 'Bebas Neue', sans-serif; font-size: 18px; color: #1e2530; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .footer-text { font-family: 'DM Mono', monospace; font-size: 10px; color: #141820; letter-spacing: 0.06em; line-height: 1.8; }
+
+  @media (max-width: 600px) {
+    .hero { padding: 48px 0 36px; }
+    .card-stats { gap: 14px; }
+    .sc-val { font-size: 22px; }
+  }
+</style>
+
+  <!-- Open Graph / Social Preview -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://linescoutai.com/">
+  <meta property="og:title" content="Line Scout AI — MLB Betting Intelligence">
+  <meta property="og:description" content="Real-time MLB odds analysis. Find run line value, over/under edges, streak data and weather impact. Live odds from DraftKings, FanDuel, BetMGM & Caesars.">
+  <meta property="og:image" content="https://linescoutai.com/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Line Scout AI — MLB Betting Intelligence">
+  <meta name="twitter:description" content="Real-time MLB odds analysis. Run line value, streaks, weather impact. Live odds from DraftKings, FanDuel, BetMGM & Caesars.">
+  <meta name="twitter:image" content="https://linescoutai.com/og-image.png">
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-inner">
+    <div class="nav-logo">
+      LINE SCOUT <span class="nav-logo-tag">AI</span>
+    </div>
+    <div class="nav-right" id="reqsDisplay"></div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="wrap">
+  <div class="hero">
+    <div class="hero-eyebrow">⚾ MLB BETTING INTELLIGENCE</div>
+    <h1 class="hero-title">FIND THE<br><span>EDGE</span></h1>
+    <p class="hero-sub">Real-time MLB odds analysis. Spot run line value, over/under edges, and pricing anomalies across DraftKings, FanDuel, BetMGM & Caesars.</p>
+    <div class="hero-pills">
+      <span class="pill pill-green">RUN LINE VALUE</span>
+      <span class="pill pill-cyan">OVER/UNDER EDGES</span>
+      <span class="pill pill-amber">SHORT LINE ALERTS</span>
+      <span class="pill pill-purple">LIVE ODDS</span>
+    </div>
+  </div>
+
+  <div class="section-divider"></div>
+
+  <!-- STATS -->
+  <div class="stats" id="statsRow" style="display:none">
+    <div class="stat-box">
+      <div class="stat-label" id="gamesTodayLabel">GAMES TODAY</div>
+      <div class="stat-val cw" id="statGames">0</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">RL VALUE SPOTS</div>
+      <div class="stat-val cg" id="statRLVal">0</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">OVER VALUE SPOTS</div>
+      <div class="stat-val cc" id="statOverVal">0</div>
+    </div>
+  </div>
+
+  <!-- BUTTONS -->
+  <div class="btn-row">
+    <button class="btn-today" id="btnToday" onclick="scan('today')">⚡ SCAN TODAY'S LINES</button>
+    <button class="btn-tmr"   id="btnTmr"   onclick="scan('tomorrow')">🔭 SCAN TOMORROW'S LINES</button>
+    <span class="update-ts" id="updateTs"></span>
+  </div>
+
+  <!-- ERROR -->
+  <div class="error-box" id="errorBox" style="display:none"></div>
+
+  <!-- DAILY BRIEFING -->
+  <div id="briefingBox" style="display:none;background:linear-gradient(135deg,rgba(0,255,135,0.04),rgba(0,212,255,0.03));border:1px solid rgba(0,255,135,0.15);border-radius:10px;padding:18px 22px;margin-bottom:22px;">
+    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--green);letter-spacing:0.15em;margin-bottom:10px">📋 TODAY'S BRIEFING</div>
+    <div id="briefingText" style="font-size:13px;color:#8a9ab0;line-height:1.8;font-style:italic"></div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs" id="tabsRow" style="display:none">
+    <button class="tab active-rl" id="tabRL" onclick="setTab('RL')">
+      ⚾ -1.5 RUN LINE <span class="tab-count" id="tabRLCount"></span>
+    </button>
+    <button class="tab" id="tabTot" onclick="setTab('TOT')">
+      📊 TOTAL RUN LINE <span class="tab-count" id="tabTotCount"></span>
+    </button>
+    <button class="tab" id="tabTop" onclick="setTab('TOP')">🎯 TOP PLAYS <span class="tab-count" id="tabTopCount"></span></button>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="filters" id="filtersRow" style="display:none"></div>
+
+  <!-- LOADING -->
+  <div class="loading" id="loadingBox" style="display:none">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loadingText">FETCHING LIVE ODDS...</div>
+  </div>
+
+  <!-- RECORD BADGE -->
+  <div id="recordBadge" style="display:none;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:14px 20px;margin-bottom:14px"></div>
+
+  <!-- CARDS -->
+  <div id="cardsContainer"></div>
+
+  <!-- EMPTY -->
+  <div class="empty" id="emptyBox">
+    <div class="empty-icon">⚾</div>
+    <div class="empty-text">SCAN TODAY OR TOMORROW TO FIND VALUE</div>
+  </div>
+
+  <!-- LEGEND -->
+  <div class="legend" id="legendBox" style="display:none">
+    <div class="legend-title">SIGNAL GUIDE</div>
+    <div class="legend-grid">
+      <div class="legend-item"><span class="badge badge-rl">RUN LINE VALUE</span><span class="legend-desc">ML fav with +money -1.5 run line</span></div>
+      <div class="legend-item"><span class="badge badge-sh">SHORT LINE</span><span class="legend-desc">ML at -165 or steeper</span></div>
+      <div class="legend-item"><span class="badge badge-ov">OVER VALUE</span><span class="legend-desc">Total ≤8 with +money over</span></div>
+      <div class="legend-item"><span class="badge badge-low">LOW TOTAL</span><span class="legend-desc">Total set at 7.5 or under</span></div>
+      <div class="legend-item"><span class="badge badge-sov">SHARP OVER</span><span class="legend-desc">Over priced -105 or better</span></div>
+      <div class="legend-item"><span class="badge badge-wind-out">WIND OUT</span><span class="legend-desc">10+ mph blowing out to CF</span></div>
+      <div class="legend-item"><span class="badge badge-wind-in">WIND IN</span><span class="legend-desc">10+ mph blowing in from CF</span></div>
+      <div class="legend-item"><span class="badge badge-rain">RAIN RISK</span><span class="legend-desc">50%+ chance of rain</span></div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div class="footer-logo">LINE SCOUT AI</div>
+    <div class="footer-text">
+      Powered by live odds data · For entertainment purposes only<br>
+      Always gamble responsibly · linescoutai.com
+    </div>
+  </div>
+</div>
+
+<script>
+let allGames = [], activeTab = 'RL', filterMode = 'ALL', pickRecord = null;
+
+// ── SCAN ──────────────────────────────────────────────────────────────────────
+async function scan(which) {
+  setLoading(true, which);
+  hideError();
+  allGames = [];
+
+  try {
+    const res = await fetch(`/api/odds?which=${which}`);
+    const remaining = res.headers.get('x-requests-remaining');
+
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Server error ${res.status}`);
+    }
+
+    const payload = await res.json();
+    const raw = Array.isArray(payload) ? payload : (payload.games || []);
+    const briefing = payload.briefing || "";
+    if (!Array.isArray(raw)) throw new Error('Unexpected response format');
+
+    allGames = processGames(raw);
+    renderAll(which);
+
+    // Show daily briefing
+    if (briefing) {
+      document.getElementById('briefingText').textContent = briefing;
+      document.getElementById('briefingBox').style.display = 'block';
+    }
+
+    // Save today's top plays and load record
+    const plays = buildTopPlays(allGames);
+    if (plays.length > 0 && which === 'today') {
+      fetch('/api/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plays: plays.map(p => ({ bet: p.bet, type: p.type, team: p.team, odds: p.odds, confidence: p.confidence, time: p.time })) })
+      }).catch(() => {});
+    }
+    // Grade yesterday's picks
+    fetch('/api/record', { method: 'PUT' }).catch(() => {});
+    // Load record
+    fetch('/api/record').then(r => r.json()).then(data => {
+      pickRecord = data.record;
+      renderRecordBadge();
+    }).catch(() => {});
+    if (which === "tomorrow" && raw.length < 5) {
+      const info = document.getElementById("errorBox");
+      info.style.background = "rgba(255,183,0,0.06)";
+      info.style.borderColor = "rgba(255,183,0,0.2)";
+      info.style.color = "#ffb700";
+      info.textContent = `⏳ Only ${raw.length} game${raw.length !== 1 ? "s" : ""} found for tomorrow — books typically post the full next-day MLB slate between 12–6 PM ET. Check back later for the complete lineup.`;
+      info.style.display = "block";
+    }
+
+    // Temp debug — show Claude status
+    if (raw.length > 0 && raw[0]._debug) {
+      const d = raw[0]._debug;
+      console.log("Claude debug:", JSON.stringify(d));
+      if (d.claudeError) showError("AI analysis error: " + d.claudeError);
+    }
+    const ts = new Date().toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+    document.getElementById('updateTs').textContent = `Live data · ${ts}`;
+    document.getElementById('gamesTodayLabel').textContent = which === 'tomorrow' ? 'GAMES TOMORROW' : 'GAMES TODAY';
+
+  } catch(e) {
+    showError(e.message);
+  } finally {
+    setLoading(false);
+  }
+}
+
+// ── PROCESS ───────────────────────────────────────────────────────────────────
+function processGames(raw) {
+  return raw.map(event => {
+    const home = event.home_team, away = event.away_team;
+    const time = new Date(event.commence_time).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', timeZoneName:'short' });
+    let homeMls=[], awayMls=[], homeRLs=[], awayRLs=[], overs=[], unders=[], totals=[];
+
+    for (const book of (event.bookmakers || [])) {
+      for (const mkt of (book.markets || [])) {
+        if (mkt.key === 'h2h') {
+          for (const o of mkt.outcomes) {
+            if (o.name === home) homeMls.push(o.price); else awayMls.push(o.price);
+          }
+        }
+        if (mkt.key === 'spreads') {
+          for (const o of mkt.outcomes) {
+            if (o.name === home && o.point === -1.5) homeRLs.push(o.price);
+            if (o.name === away && o.point ===  1.5) awayRLs.push(o.price);
+          }
+        }
+        if (mkt.key === 'totals') {
+          for (const o of mkt.outcomes) {
+            if (o.name === 'Over')  { overs.push(o.price); totals.push(o.point); }
+            if (o.name === 'Under') unders.push(o.price);
+          }
+        }
+      }
+    }
+
+    const avg = a => a.length ? Math.round(a.reduce((x,y)=>x+y,0)/a.length) : null;
+    const homeML=avg(homeMls), awayML=avg(awayMls);
+    const homeRL=avg(homeRLs), awayRL=avg(awayRLs);
+    const overOdds=avg(overs), underOdds=avg(unders);
+    const total=totals.length ? totals[0] : null;
+
+    const flags = [];
+    if (homeML !== null && homeML < 0 && homeRL !== null && homeRL > 0) flags.push('RUN LINE VALUE');
+    if (awayML !== null && awayML < 0 && awayRL !== null && awayRL > 0) flags.push('RUN LINE VALUE');
+    if ((homeML !== null && homeML <= -165) || (awayML !== null && awayML <= -165)) flags.push('SHORT LINE');
+    const hs = event.homeStreak, as_ = event.awayStreak;
+    if (hs && hs.type === 'W' && hs.streak >= 2) flags.push('HOT STREAK');
+    if (as_ && as_.type === 'W' && as_.streak >= 2) flags.push('HOT STREAK');
+    if ((hs && hs.type === 'L' && hs.streak >= 3) || (as_ && as_.type === 'L' && as_.streak >= 3)) flags.push('FADE CANDIDATE');
+    const totalFlags = [];
+    if (total !== null && total <= 7.5) totalFlags.push('LOW TOTAL');
+    if (total !== null && total <= 8 && overOdds !== null && overOdds > 0) totalFlags.push('OVER VALUE');
+    if (overOdds !== null && overOdds >= -105) totalFlags.push('SHARP OVER');
+    const wx = event.weather;
+    if (wx && !wx.isIndoor) {
+      if (wx.windEffect === 'out' && wx.windSpeed >= 8) totalFlags.push('WIND OUT');
+      if (wx.windEffect === 'in' && wx.windSpeed >= 8) totalFlags.push('WIND IN');
+      if (wx.precip >= 40) totalFlags.push('RAIN RISK');
+    }
+
+    let analysis = null;
+    if (flags.includes('RUN LINE VALUE')) {
+      const favTeam = (homeML !== null && homeML < 0 && homeRL !== null && homeRL > 0) ? home : away;
+      const rl = (homeML !== null && homeML < 0 && homeRL !== null && homeRL > 0) ? homeRL : awayRL;
+      analysis = `${favTeam} are the ML favorite but their -1.5 run line is ${fmt(rl)} — strong value if they win by 2 or more.`;
+    } else if (flags.includes('SHORT LINE')) {
+      const st = homeML !== null && homeML <= -200 ? home : away;
+      const pr = homeML !== null && homeML <= -200 ? homeML : awayML;
+      analysis = `${st} priced at ${fmt(pr)} — steep price to lay, the run line or first-5 may offer better value.`;
+    }
+
+    let totalAnalysis = null;
+    if (totalFlags.includes('OVER VALUE')) {
+      totalAnalysis = `Total set at ${total} with the over at ${fmt(overOdds)} — low-total +money over is a value spot.`;
+    } else if (totalFlags.includes('SHARP OVER')) {
+      totalAnalysis = `Over priced at ${fmt(overOdds)}, better than standard -110 — possible sharp over action on this game.`;
+    }
+
+    return { home, away, time, homeML, awayML, homeRL, awayRL, flags, analysis, total, overOdds, underOdds, totalFlags, totalAnalysis, aiAnalysis: event.aiAnalysis || null, homeStreak: event.homeStreak || null, awayStreak: event.awayStreak || null, weather: event.weather || null, bookOdds: event.bookOdds || {}, pitchers: event.pitchers || null };
+  });
+}
+
+function fmt(n) { if (n==null) return 'N/A'; return n>0 ? `+${n}` : `${n}`; }
+function oc(n, pos='cg', neg='cm') { return n==null ? 'cm' : n>0 ? pos : neg; }
+function imp(odds) { if(!odds) return null; return odds<0 ? Math.round(-odds/(-odds+100)*100) : Math.round(100/(odds+100)*100); }
+
+
+// ── EDGE & SCORE CALCULATORS ──────────────────────────────────────────────────
+function calcEdge(g) {
+  // Edge = difference between ML implied probability and run line implied probability
+  // When ML fav has +money run line, the market is mispricing the run line
+  if (!g.homeML || !g.awayML) return null;
+
+  const homeFav = g.homeML < 0;
+  const favML = homeFav ? g.homeML : g.awayML;
+  const favRL = homeFav ? g.homeRL : g.awayRL;
+
+  if (!favRL) return null;
+
+  const mlImplied = favML < 0 ? (-favML / (-favML + 100)) * 100 : (100 / (favML + 100)) * 100;
+  const rlImplied = favRL < 0 ? (-favRL / (-favRL + 100)) * 100 : (100 / (favRL + 100)) * 100;
+
+  // Edge is how much cheaper the run line is vs what ML implies
+  const edge = mlImplied - rlImplied;
+  return Math.round(edge * 10) / 10;
+}
+
+function calcMIS(g) {
+  // Market Inefficiency Score — composite 1-10
+  let score = 5.0; // baseline
+
+  // Run line gap vs ML
+  const edge = calcEdge(g);
+  if (edge !== null) {
+    if (edge > 20) score += 2.5;
+    else if (edge > 15) score += 2.0;
+    else if (edge > 10) score += 1.5;
+    else if (edge > 5)  score += 1.0;
+    else if (edge > 0)  score += 0.5;
+    else score -= 1.0;
+  }
+
+  // Streak bonus
+  const hs = g.homeStreak, as_ = g.awayStreak;
+  const hotStreak = (hs && hs.type === 'W' && hs.streak >= 3) || (as_ && as_.type === 'W' && as_.streak >= 3);
+  const coldStreak = (hs && hs.type === 'L' && hs.streak >= 3) || (as_ && as_.type === 'L' && as_.streak >= 3);
+  if (hotStreak) score += 0.8;
+  if (coldStreak) score -= 0.5;
+
+  // Weather bonus for totals
+  const wx = g.weather;
+  if (wx && !wx.isIndoor) {
+    if (wx.windEffect === 'out' && wx.windSpeed >= 8) score += 0.7;
+    if (wx.windEffect === 'in'  && wx.windSpeed >= 8) score += 0.5;
+    if (wx.precip >= 40) score += 0.3;
+  }
+
+  // Short line penalty — overcorrected market
+  const favML = g.homeML < 0 ? g.homeML : g.awayML;
+  if (favML <= -180) score -= 0.5;
+
+  // Cap 1-10, one decimal
+  score = Math.max(1.0, Math.min(10.0, score));
+  return Math.round(score * 10) / 10;
+}
+
+
+// ── CONFIDENCE SCORER ─────────────────────────────────────────────────────────
+function buildTopPlays(games) {
+  const candidates = [];
+
+  for (const g of games) {
+    // --- RUN LINE PLAYS ---
+    if (g.flags.includes('RUN LINE VALUE')) {
+      const edge = calcEdge(g);
+      const mis = calcMIS(g);
+      const hs = g.homeStreak, as_ = g.awayStreak;
+      const favIsHome = g.homeML !== null && g.homeML < 0;
+      const favStreak = favIsHome ? hs : as_;
+      const favRL = favIsHome ? g.homeRL : g.awayRL;
+      const favTeam = favIsHome ? g.home : g.away;
+      const favML = favIsHome ? g.homeML : g.awayML;
+
+      let confidence = 0;
+      let reasons = [];
+
+      // Edge contribution (0-40 pts)
+      if (edge !== null) {
+        confidence += Math.min(40, edge * 2);
+        if (edge >= 15) reasons.push(`+${edge}% edge on run line vs ML`);
+        else if (edge >= 8) reasons.push(`${edge}% run line value`);
+      }
+
+      // Streak (0-25 pts)
+      if (favStreak && favStreak.type === 'W') {
+        confidence += Math.min(25, favStreak.streak * 5);
+        if (favStreak.streak >= 3) reasons.push(`${favStreak.type}${favStreak.streak} streak`);
+      }
+
+      // MIS score (0-20 pts)
+      if (mis) confidence += (mis / 10) * 20;
+
+      // Short line penalty
+      if (favML <= -185) { confidence -= 10; reasons.push('steep ML price'); }
+
+      // Book consensus — more books agreeing = more confidence
+      const bookEntries = Object.values(g.bookOdds || {}).filter(b => b.homeRL != null);
+      const allPositive = bookEntries.filter(b => (favIsHome ? b.homeRL : b.awayRL) > 0).length;
+      if (allPositive >= 3) { confidence += 10; reasons.push(`${allPositive}/4 books show +money RL`); }
+
+      confidence = Math.round(Math.min(99, Math.max(1, confidence)));
+
+      candidates.push({
+        type: 'RUN LINE',
+        team: favTeam,
+        opponent: favIsHome ? g.away : g.home,
+        bet: `${favTeam} -1.5`,
+        odds: fmt(favRL),
+        confidence,
+        reasons,
+        game: g,
+        analysis: g.aiAnalysis || g.analysis || '',
+        time: g.time,
+      });
+    }
+
+    // --- TOTAL PLAYS ---
+    if (g.totalFlags.includes('OVER VALUE') || g.totalFlags.includes('SHARP OVER')) {
+      let confidence = 0;
+      let reasons = [];
+
+      // Over value
+      if (g.totalFlags.includes('OVER VALUE')) { confidence += 30; reasons.push(`+money over on low total (${g.total})`); }
+      if (g.totalFlags.includes('SHARP OVER')) { confidence += 20; reasons.push(`sharp over at ${fmt(g.overOdds)}`); }
+
+      // Weather boost
+      const wx = g.weather;
+      if (wx && !wx.isIndoor && wx.windEffect === 'out' && wx.windSpeed >= 8) {
+        confidence += 20; reasons.push(`wind blowing out ${wx.windSpeed}mph`);
+      }
+
+      // Both teams on win streaks = more scoring
+      const hs = g.homeStreak, as_ = g.awayStreak;
+      if (hs && hs.type === 'W' && hs.streak >= 2 && as_ && as_.type === 'W' && as_.streak >= 2) {
+        confidence += 10; reasons.push('both teams on win streaks');
+      }
+
+      confidence = Math.round(Math.min(99, Math.max(1, confidence)));
+
+      candidates.push({
+        type: 'OVER',
+        team: `${g.away} @ ${g.home}`,
+        opponent: '',
+        bet: `Over ${g.total}`,
+        odds: fmt(g.overOdds),
+        confidence,
+        reasons,
+        game: g,
+        analysis: g.aiAnalysis || g.totalAnalysis || '',
+        time: g.time,
+      });
+    }
+  }
+
+  // Sort by confidence desc, take top 3
+  return candidates.sort((a, b) => b.confidence - a.confidence).slice(0, 3);
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function renderAll(which) {
+  const rlV = allGames.filter(g=>g.flags.includes('RUN LINE VALUE')).length;
+  const ovV = allGames.filter(g=>g.totalFlags.includes('OVER VALUE')||g.totalFlags.includes('SHARP OVER')).length;
+  document.getElementById('statGames').textContent = allGames.length;
+  document.getElementById('statRLVal').textContent = rlV;
+  document.getElementById('statOverVal').textContent = ovV;
+  document.getElementById('statsRow').style.display = 'flex';
+  document.getElementById('tabsRow').style.display = 'flex';
+  document.getElementById('legendBox').style.display = 'block';
+  document.getElementById('emptyBox').style.display = allGames.length ? 'none' : 'block';
+  document.getElementById('tabRLCount').textContent = rlV>0 ? `(${rlV} value)` : '';
+  document.getElementById('tabTotCount').textContent = ovV>0 ? `(${ovV} value)` : '';
+  document.getElementById('tabTopCount').textContent = '3 plays';
+  renderFilters(); renderCards();
+}
+
+function setTab(t) {
+  activeTab=t; filterMode='ALL';
+  document.getElementById('tabRL').className  = 'tab'+(t==='RL'  ? ' active-rl'  : '');
+  document.getElementById('tabTot').className = 'tab'+(t==='TOT' ? ' active-tot' : '');
+  document.getElementById('tabTop').className = 'tab'+(t==='TOP' ? ' active-top' : '');
+  renderFilters(); renderCards();
+}
+
+function renderFilters() {
+  const el = document.getElementById('filtersRow'); el.style.display='flex';
+  const rlV = allGames.filter(g=>g.flags.includes('RUN LINE VALUE')).length;
+  const ovV = allGames.filter(g=>g.totalFlags.includes('OVER VALUE')||g.totalFlags.includes('SHARP OVER')).length;
+  const lowV = allGames.filter(g=>g.totalFlags.includes('LOW TOTAL')).length;
+  const opts = activeTab==='RL'
+    ? [['ALL',`ALL (${allGames.length})`],['VALUE',`RL VALUE (${rlV})`],['SHORT','SHORT LINE']]
+    : [['ALL',`ALL (${allGames.length})`],['OVER',`OVER VALUE (${ovV})`],['LOW',`LOW TOTAL (${lowV})`]];
+  el.innerHTML = opts.map(([k,l])=>`<button class="filter ${filterMode===k?'active':''}" onclick="setFilter('${k}')">${l}</button>`).join('');
+}
+
+function setFilter(f) { filterMode=f; renderFilters(); renderCards(); }
+
+function badgeHTML(f) {
+  const m = {'RUN LINE VALUE':'badge-rl','SHORT LINE':'badge-sh','HOT STREAK':'badge-hot','FADE CANDIDATE':'badge-fade','OVER VALUE':'badge-ov','LOW TOTAL':'badge-low','SHARP OVER':'badge-sov','WIND OUT':'badge-wind-out','WIND IN':'badge-wind-in','RAIN RISK':'badge-rain'};
+  return `<span class="badge ${m[f]||''}">${f}</span>`;
+}
+
+function renderCards() {
+  const c = document.getElementById('cardsContainer');
+  let games = allGames;
+  if (activeTab==='TOP') {
+    const plays = buildTopPlays(allGames);
+    // Show record badge first
+    document.getElementById('recordBadge').style.display = pickRecord && (pickRecord.overall.w + pickRecord.overall.l) > 0 ? 'block' : 'none';
+    c.innerHTML = plays.length ? plays.map((p,i) => renderTopPlay(p,i)).join('') : '<div style="text-align:center;padding:60px;color:#2a3040;font-family:monospace;font-size:12px">Run a scan to see top plays</div>';
+    c.querySelectorAll('.card').forEach((el,i)=>{ el.style.animationDelay=`${i*35}ms`; });
+    return;
+  } else if (activeTab==='RL') {
+    if (filterMode==='VALUE') games=games.filter(g=>g.flags.includes('RUN LINE VALUE'));
+    if (filterMode==='SHORT') games=games.filter(g=>g.flags.includes('SHORT LINE'));
+    c.innerHTML = games.map(renderRL).join('');
+  } else {
+    if (filterMode==='OVER') games=games.filter(g=>g.totalFlags.includes('OVER VALUE')||g.totalFlags.includes('SHARP OVER'));
+    if (filterMode==='LOW')  games=games.filter(g=>g.totalFlags.includes('LOW TOTAL'));
+    c.innerHTML = games.map(renderTot).join('');
+  }
+  c.querySelectorAll('.card').forEach((el,i)=>{ el.style.animationDelay=`${i*35}ms`; });
+}
+
+function streakCell(label, s) {
+  if (!s || !s.type) return '';
+  const col = s.type==='W' ? (s.streak>=4?'#ff4757':s.streak>=3?'#ff8c00':'#00ff87') : (s.streak>=4?'#ff6b35':s.streak>=3?'#ff8c00':'#747d8c');
+  const last5 = (s.last5||[]).map(r=>`<span style="color:${r==='W'?'#00ff87':'#ff4757'};font-size:9px">${r}</span>`).join(' ');
+  return `<div class="sc">
+    <div class="sc-label">${label} STREAK</div>
+    <div class="sc-val" style="color:${col};font-size:22px">${s.type}${s.streak}</div>
+    <div style="margin-top:3px;display:flex;gap:2px;justify-content:center">${last5}</div>
+  </div>`;
+}
+
+function renderRL(g) {
+  const isV=g.flags.includes('RUN LINE VALUE'), isSh=g.flags.includes('SHORT LINE');
+  const isHot=g.flags.includes('HOT STREAK'), isFade=g.flags.includes('FADE CANDIDATE');
+  const cls=isV?'card-rl-value':isSh?'card-short':isHot?'card-rl-value':'card-default';
+  const acc=isV||isHot?'<div class="card-accent accent-green"></div>':isSh||isFade?'<div class="card-accent accent-amber"></div>':'';
+  const i=imp(g.homeML);
+  return `<div class="card ${cls}">${acc}
+    <div class="card-top">
+      <div class="card-teams">
+        <div class="team-row">
+          <span class="away-team">${g.away}</span>
+          <span class="vs-sep">@</span>
+          <span class="home-team">${g.home}</span>
+          <span class="game-time">${g.time}</span>
+        </div>
+        ${g.pitchers ? `<div style="font-family:monospace;font-size:10px;color:#2a3540;margin-bottom:4px;letter-spacing:0.03em">
+          <span style="color:#3a4550">${g.away.split(' ').pop()}: </span><span style="color:#4a5560">${g.pitchers.away}</span>
+          <span style="color:#252d38;margin:0 6px">·</span>
+          <span style="color:#3a4550">${g.home.split(' ').pop()}: </span><span style="color:#4a5560">${g.pitchers.home}</span>
+        </div>` : ''}
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+        </div>
+        <div class="badges">${g.flags.map(badgeHTML).join('')}</div>
+
+      </div>
+      ${(()=>{
+        const favIsHome = g.homeML !== null && g.awayML !== null ? g.homeML < g.awayML : g.homeML !== null && g.homeML < 0;
+        const fav = favIsHome ? g.home : g.away;
+        const dog = favIsHome ? g.away : g.home;
+        const favML = favIsHome ? g.homeML : g.awayML;
+        const favRL = favIsHome ? g.homeRL : g.awayRL;
+        const favStreak = favIsHome ? g.homeStreak : g.awayStreak;
+        const favShort = fav.split(' ').pop().toUpperCase();
+        const dogShort = dog.split(' ').pop().toUpperCase();
+        const edge = calcEdge(g);
+        const ec = edge>=10?'cg':edge>=5?'ca':edge>=0?'cm':'cr';
+        const imp2 = favML ? (favML<0 ? Math.round(-favML/(-favML+100)*100) : Math.round(100/(favML+100)*100)) : null;
+        return `<div class="card-stats">
+          <div class="sc"><div class="sc-label">${favShort} ML</div><div class="sc-val ${oc(favML)}">${fmt(favML)}</div></div>
+          <div class="sc"><div class="sc-label">${favShort} -1.5</div><div class="sc-val ${favRL>=0?'cg':'ca'}">${fmt(favRL)}</div></div>
+          ${streakCell('STREAK', favStreak)}
+          ${imp2?`<div class="sc"><div class="sc-label">WIN%</div><div class="sc-val cm">${imp2}%</div></div>`:''}
+          ${edge!==null?`<div class="sc"><div class="sc-label">EDGE</div><div class="sc-val ${ec}">${edge>=0?'+':''}${edge}%</div></div>`:''}
+        </div>`;
+      })()}
+    </div>
+    ${(()=>{
+      const books = ['DK','FD','MGM','CZS','SCR'];
+      const labels = {DK:'DraftKings',FD:'FanDuel',MGM:'BetMGM',CZS:'Caesars',SCR:'theScore'};
+      const entries = books.map(b => ({ b, data: g.bookOdds[b] })).filter(x => x.data && (x.data.homeRL != null || x.data.homeML != null));
+      if (entries.length < 2) return '';
+      // Find best home RL (highest = best for bettor)
+      const rlVals = entries.map(x => x.data.homeRL).filter(v => v != null);
+      const bestRL = rlVals.length ? Math.max(...rlVals) : null;
+      // Find best home ML (highest = best for bettor on dog, least negative = best on fav)
+      const mlVals = entries.map(x => x.data.homeML).filter(v => v != null);
+      const bestML = mlVals.length ? Math.max(...mlVals) : null;
+      return `<div style="margin-top:12px;padding:10px 14px;background:rgba(255,255,255,0.02);border-radius:6px;border:1px solid rgba(255,255,255,0.05)">
+        <div style="font-family:monospace;font-size:9px;color:#252d38;letter-spacing:0.1em;margin-bottom:8px">BEST AVAILABLE LINE</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${entries.map(({b, data}) => {
+            const rlBest = data.homeRL != null && data.homeRL === bestRL;
+            const mlBest = data.homeML != null && data.homeML === bestML;
+            return `<div style="background:${rlBest||mlBest?'rgba(0,255,135,0.08)':'rgba(255,255,255,0.03)'};border:1px solid ${rlBest||mlBest?'rgba(0,255,135,0.25)':'rgba(255,255,255,0.06)'};border-radius:5px;padding:6px 10px;text-align:center;min-width:64px">
+              <div style="font-family:monospace;font-size:9px;color:${rlBest||mlBest?'#00ff87':'#333'};letter-spacing:0.08em;margin-bottom:3px">${b}${rlBest||mlBest?' ★':''}</div>
+              <div style="font-family:serif;font-size:15px;font-weight:700;color:${data.homeML!=null&&data.homeML===bestML?'#00ff87':'#666'}">${data.homeML!=null?(data.homeML>0?'+':'')+data.homeML:'—'}</div>
+              ${data.homeRL!=null?`<div style="font-family:serif;font-size:13px;color:${rlBest?'#00ff87':'#444'}">${data.homeRL>0?'+':''}${data.homeRL}</div>`:''}
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    })()}
+    ${g.aiAnalysis?`<div class="card-note">${g.aiAnalysis}</div>`:g.analysis?`<div class="card-note">💡 ${g.analysis}</div>`:''}
+  </div>`;
+}
+
+function renderTot(g) {
+  const isV=g.totalFlags.includes('OVER VALUE')||g.totalFlags.includes('SHARP OVER');
+  const cls=isV?'card-tot-value':'card-default';
+  const acc=isV?'<div class="card-accent accent-cyan"></div>':'';
+  return `<div class="card ${cls}">${acc}
+    <div class="card-top">
+      <div class="card-teams">
+        <div class="team-row">
+          <span class="away-team">${g.away}</span>
+          <span class="vs-sep">@</span>
+          <span class="home-team">${g.home}</span>
+          <span class="game-time">${g.time}</span>
+        </div>
+        <div class="badges">${g.totalFlags.map(badgeHTML).join('')}</div>
+      </div>
+      <div class="card-stats">
+        <div class="sc"><div class="sc-label">O/U TOTAL</div><div class="sc-val cw">${g.total??'—'}</div></div>
+        <div class="sc"><div class="sc-label">OVER</div><div class="sc-val ${g.overOdds>=0?'cc':'cm'}">${fmt(g.overOdds)}</div></div>
+        <div class="sc"><div class="sc-label">UNDER</div><div class="sc-val ${g.underOdds>=0?'cr':'cm'}">${fmt(g.underOdds)}</div></div>
+      </div>
+    </div>
+    ${g.weather && !g.weather.isIndoor ? `<div style="display:flex;gap:12px;align-items:center;margin-top:10px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:5px;font-family:monospace;font-size:11px;color:#4a5060"><span>${g.weather.temp}F</span><span>${g.weather.windLabel}</span>${g.weather.precip >= 15 ? `<span>${g.weather.precip}% rain</span>` : ''}<span style="color:#252d38">${g.weather.stadium}</span></div>` : ''}
+    ${g.aiAnalysis?`<div class="card-note">${g.aiAnalysis}</div>`:g.totalAnalysis?`<div class="card-note">💡 ${g.totalAnalysis}</div>`:''}
+  </div>`;
+}
+
+
+
+function renderRecordBadge() {
+  const el = document.getElementById('recordBadge');
+  if (!el || !pickRecord) return;
+  const { overall, runLine, over } = pickRecord;
+  const totalGraded = overall.w + overall.l;
+  if (totalGraded === 0) { el.style.display = 'none'; return; }
+  const pct = Math.round((overall.w / totalGraded) * 100);
+  const color = pct >= 60 ? '#00ff87' : pct >= 50 ? '#ffb700' : '#ff4757';
+  el.innerHTML = `
+    <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+      <div>
+        <div style="font-family:monospace;font-size:9px;color:#3a4050;letter-spacing:0.1em;margin-bottom:2px">OVERALL RECORD</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:${color};line-height:1">${overall.w}-${overall.l}</div>
+        <div style="font-family:monospace;font-size:10px;color:${color}">${pct}% hit rate</div>
+      </div>
+      <div style="width:1px;height:40px;background:rgba(255,255,255,0.06)"></div>
+      <div>
+        <div style="font-family:monospace;font-size:9px;color:#3a4050;letter-spacing:0.1em;margin-bottom:2px">RUN LINE</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:#aaa;line-height:1">${runLine.w}-${runLine.l}</div>
+      </div>
+      <div>
+        <div style="font-family:monospace;font-size:9px;color:#3a4050;letter-spacing:0.1em;margin-bottom:2px">OVERS</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:#aaa;line-height:1">${over.w}-${over.l}</div>
+      </div>
+      ${overall.p > 0 ? `<div style="font-family:monospace;font-size:10px;color:#252d38">${overall.p} pending</div>` : ''}
+    </div>`;
+  el.style.display = 'block';
+}
+
+function renderTopPlay(play, idx) {
+  const confColor = play.confidence >= 75 ? '#00ff87' : play.confidence >= 55 ? '#ffb700' : '#747d8c';
+  const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉';
+  const barWidth = play.confidence;
+  return `<div class="card card-default" style="border-color:${play.confidence>=75?'rgba(0,255,135,0.25)':play.confidence>=55?'rgba(255,183,0,0.2)':'rgba(255,255,255,0.08)'}">
+    <div class="card-accent" style="background:linear-gradient(90deg,${confColor},transparent)"></div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+      <div style="flex:1;min-width:200px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <span style="font-size:22px">${medal}</span>
+          <div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:#fff;letter-spacing:0.03em">${play.bet}</div>
+            <div style="font-family:monospace;font-size:10px;color:#3a4050">${play.team}${play.opponent?' vs '+play.opponent:''} · ${play.time}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+          <span style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:3px;padding:2px 8px;font-family:monospace;font-size:9px;color:#555;letter-spacing:0.08em">${play.type}</span>
+          ${play.reasons.map(r=>`<span style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:3px;padding:2px 8px;font-family:monospace;font-size:9px;color:#444">${r}</span>`).join('')}
+        </div>
+      </div>
+      <div style="text-align:center;min-width:90px">
+        <div style="font-family:monospace;font-size:9px;color:#3a4050;letter-spacing:0.1em;margin-bottom:4px">CONFIDENCE</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:42px;line-height:1;color:${confColor}">${play.confidence}%</div>
+        <div style="font-family:monospace;font-size:9px;color:#3a4050;margin-top:2px">ODDS ${play.odds}</div>
+      </div>
+    </div>
+    <!-- Confidence bar -->
+    <div style="height:3px;background:rgba(255,255,255,0.05);border-radius:2px;margin:8px 0 12px">
+      <div style="height:3px;width:${barWidth}%;background:${confColor};border-radius:2px;transition:width 0.6s ease"></div>
+    </div>
+    ${play.analysis?`<div class="card-note">${play.analysis}</div>`:''}
+  </div>`;
+}
+
+// ── UI HELPERS ────────────────────────────────────────────────────────────────
+function setLoading(on, which) {
+  document.getElementById('loadingBox').style.display = on?'block':'none';
+  document.getElementById('cardsContainer').style.display = on?'none':'block';
+  document.getElementById('btnToday').disabled = on;
+  document.getElementById('btnTmr').disabled = on;
+  if (on) {
+    document.getElementById('loadingText').textContent = which==='tomorrow' ? "FETCHING TOMORROW'S ODDS..." : 'FETCHING LIVE ODDS...';
+    document.getElementById('statsRow').style.display = 'none';
+    document.getElementById('briefingBox').style.display = 'none';
+    document.getElementById('tabsRow').style.display = 'none';
+    document.getElementById('filtersRow').style.display = 'none';
+    document.getElementById('legendBox').style.display = 'none';
+    document.getElementById('emptyBox').style.display = 'none';
+  }
+}
+function showError(msg) { const e=document.getElementById('errorBox'); e.textContent='⚠️ '+msg; e.style.display='block'; }
+function hideError() { document.getElementById('errorBox').style.display='none'; }
+</script>
+</body>
+</html>
