@@ -871,9 +871,10 @@ function renderRL(g) {
           ${entries.map(({b, data}) => {
             const rlBest = data.homeRL != null && data.homeRL === bestRL;
             const mlBest = data.homeML != null && data.homeML === bestML;
+            const rlWorst = data.homeRL != null && data.homeRL === Math.min(...entries.map(x=>x.data.homeRL).filter(v=>v!=null));
             return `<div style="background:${rlBest||mlBest?'rgba(0,255,135,0.08)':'rgba(255,255,255,0.03)'};border:1px solid ${rlBest||mlBest?'rgba(0,255,135,0.25)':'rgba(255,255,255,0.06)'};border-radius:5px;padding:6px 10px;text-align:center;min-width:64px">
               <div style="font-family:monospace;font-size:9px;color:${rlBest||mlBest?'#00ff87':'#333'};letter-spacing:0.08em;margin-bottom:3px">${b}${rlBest||mlBest?' ★':''}</div>
-              <div style="font-family:serif;font-size:15px;font-weight:700;color:${data.homeML!=null&&data.homeML===bestML?'#00ff87':'#666'}">${data.homeML!=null?(data.homeML>0?'+':'')+data.homeML:'—'}</div>
+              <div style="font-family:serif;font-size:15px;font-weight:700;color:${data.homeML!=null&&data.homeML===bestML?'#00ff87':data.homeML!=null&&data.homeML===Math.min(...entries.map(x=>x.data.homeML).filter(v=>v!=null))?'#ff4757':'#666'}">${data.homeML!=null?(data.homeML>0?'+':'')+data.homeML:'—'}</div>
               ${data.homeRL!=null?`<div style="font-family:serif;font-size:13px;color:${rlBest?'#00ff87':'#444'}">${data.homeRL>0?'+':''}${data.homeRL}</div>`:''}
             </div>`;
           }).join('')}
@@ -884,24 +885,25 @@ function renderRL(g) {
     ${(()=>{
       if (!g.altLines) return '';
       const mp = g.altLines.mispriced || [];
-      const spreads = (g.altLines.spreads || []).sort((a,b) => b.point - a.point).slice(0, 6);
+      const spreads = (g.altLines.spreads || []).sort((a,b) => b.point - a.point);
       if (spreads.length === 0 && mp.length === 0) return '';
       const fmt2 = n => n === null ? 'N/A' : (n > 0 ? '+' : '') + n;
-      return `<div style="margin-top:12px;padding:12px 14px;background:rgba(236,72,153,0.04);border:1px solid rgba(236,72,153,0.15);border-radius:6px">
-        <div style="font-family:monospace;font-size:9px;color:#ec4899;letter-spacing:0.12em;margin-bottom:10px">🔀 ALT RUN LINE LADDER</div>
-        ${mp.length > 0 ? `<div style="margin-bottom:10px">${mp.map(m => `
-          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(236,72,153,0.08);border:1px solid rgba(236,72,153,0.3);border-radius:5px;margin-bottom:5px">
-            <span style="font-family:monospace;font-size:9px;color:#ec4899;font-weight:700">⚡ MISPRICED</span>
-            <span style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff">${m.line}</span>
-            <span style="font-family:serif;font-size:16px;color:#ec4899;font-weight:700">${fmt2(m.price)}</span>
-            <span style="font-family:monospace;font-size:9px;color:#4a5060">vs ${m.vs}</span>
-            <span style="font-family:monospace;font-size:9px;color:#ec4899">~${m.savings}¢ cheap · ${m.book.toUpperCase()}</span>
-          </div>`).join('')}</div>` : ''}
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          ${spreads.map(s => `<div style="text-align:center;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:5px;padding:6px 10px;min-width:56px">
-            <div style="font-family:monospace;font-size:9px;color:#3a4050;margin-bottom:2px">${s.point > 0 ? '+' : ''}${s.point}</div>
-            <div style="font-family:serif;font-size:16px;font-weight:700;color:${s.price >= 0 ? '#00ff87' : '#666'}">${fmt2(s.price)}</div>
-            <div style="font-family:monospace;font-size:8px;color:#252d38">${s.book.substring(0,2).toUpperCase()}</div>
+      // Only show top 3 most interesting: closest to 0, standard -1.5, and best +money
+      const keyLines = spreads.filter((s,i,arr) =>
+        s.point === -1.5 || s.point === -0.5 || s.point === -2.5 ||
+        (s.price > 0 && arr.findIndex(x => x.price > 0) === i)
+      ).slice(0, 3);
+      if (keyLines.length === 0 && mp.length === 0) return '';
+      return `<div style="margin-top:10px;padding:10px 14px;background:rgba(236,72,153,0.03);border:1px solid rgba(236,72,153,0.12);border-radius:6px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span style="font-family:monospace;font-size:9px;color:#ec4899;letter-spacing:0.1em">🔀 ALT RUN LINES</span>
+          ${mp.length > 0 ? `<span style="font-family:monospace;font-size:9px;color:#ec4899;background:rgba(236,72,153,0.15);border:1px solid rgba(236,72,153,0.3);padding:2px 8px;border-radius:3px">⚡ MISPRICED: ${mp[0].line} ${fmt2(mp[0].price)} (~${mp[0].savings}¢ cheap on ${mp[0].book.replace('draftkings','DK').replace('fanduel','FD')})</span>` : ''}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${keyLines.map(s => `<div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.03);border:1px solid ${s.price>=0?'rgba(0,255,135,0.2)':s.price>=-130?'rgba(255,183,0,0.15)':'rgba(255,71,87,0.2)'};border-radius:5px;padding:6px 12px">
+            <span style="font-family:monospace;font-size:10px;color:#4a5060">${s.point > 0 ? '+' : ''}${s.point}</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:${s.price>=0?'#00ff87':s.price>=-130?'#ffb700':'#ff4757'}">${fmt2(s.price)}</span>
+            <span style="font-family:monospace;font-size:8px;color:#252d38">${s.book.replace('draftkings','DK').replace('fanduel','FD').replace('betmgm','MGM').replace('caesars','CZS')}</span>
           </div>`).join('')}
         </div>
       </div>`;
@@ -934,22 +936,23 @@ function renderTot(g) {
     ${g.weather && !g.weather.isIndoor ? `<div style="display:flex;gap:12px;align-items:center;margin-top:10px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:5px;font-family:monospace;font-size:11px;color:#4a5060"><span>${g.weather.temp}F</span><span>${g.weather.windLabel}</span>${g.weather.precip >= 15 ? `<span>${g.weather.precip}% rain</span>` : ''}<span style="color:#252d38">${g.weather.stadium}</span></div>` : ''}
     ${(()=>{
       if (!g.altLines) return '';
-      const totals = (g.altLines.totals || []).sort((a,b) => a.point - b.point).slice(0, 6);
+      const totals = (g.altLines.totals || []).sort((a,b) => a.point - b.point);
       const mp = (g.altLines.mispriced || []).filter(m => m.type === 'TOTAL');
-      if (totals.length === 0) return '';
+      if (totals.length === 0 && mp.length === 0) return '';
       const fmt2 = n => n === null ? 'N/A' : (n > 0 ? '+' : '') + n;
-      return `<div style="margin-top:10px;padding:12px 14px;background:rgba(236,72,153,0.04);border:1px solid rgba(236,72,153,0.15);border-radius:6px">
-        <div style="font-family:monospace;font-size:9px;color:#ec4899;letter-spacing:0.12em;margin-bottom:8px">🔀 ALT TOTAL LADDER</div>
-        ${mp.length > 0 ? mp.map(m => `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:rgba(236,72,153,0.08);border:1px solid rgba(236,72,153,0.3);border-radius:4px;margin-bottom:7px;font-family:monospace;font-size:10px">
-          <span style="color:#ec4899;font-weight:700">⚡ MISPRICED</span>
-          <span style="color:#fff">${m.line}</span>
-          <span style="color:#ec4899">${fmt2(m.price)}</span>
-          <span style="color:#4a5060">vs ${m.vs} · ~${m.savings}¢ cheap</span>
-        </div>`).join('') : ''}
-        <div style="display:flex;gap:5px;flex-wrap:wrap">
-          ${totals.map(t => `<div style="text-align:center;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:5px;padding:5px 8px;min-width:52px">
-            <div style="font-family:monospace;font-size:8px;color:#3a4050;margin-bottom:1px">O${t.point}</div>
-            <div style="font-family:serif;font-size:15px;font-weight:700;color:${t.price >= 0 ? '#00d4ff' : '#666'}">${fmt2(t.price)}</div>
+      // Show 3 key totals: standard, one below, one above
+      const stdIdx = totals.findIndex(t => t.point === g.total) || 0;
+      const keyTotals = totals.slice(Math.max(0, stdIdx-1), stdIdx+2);
+      if (keyTotals.length === 0) return '';
+      return `<div style="margin-top:10px;padding:10px 14px;background:rgba(236,72,153,0.03);border:1px solid rgba(236,72,153,0.12);border-radius:6px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span style="font-family:monospace;font-size:9px;color:#ec4899;letter-spacing:0.1em">🔀 ALT TOTALS</span>
+          ${mp.length > 0 ? `<span style="font-family:monospace;font-size:9px;color:#ec4899;background:rgba(236,72,153,0.15);border:1px solid rgba(236,72,153,0.3);padding:2px 8px;border-radius:3px">⚡ MISPRICED: ${mp[0].line} ${fmt2(mp[0].price)}</span>` : ''}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${keyTotals.map(t => `<div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.03);border:1px solid ${t.price>=0?'rgba(0,212,255,0.2)':t.price>=-130?'rgba(255,183,0,0.15)':'rgba(255,71,87,0.2)'};border-radius:5px;padding:6px 12px">
+            <span style="font-family:monospace;font-size:10px;color:#4a5060">O${t.point}</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:${t.price>=0?'#00d4ff':t.price>=-130?'#ffb700':'#ff4757'}">${fmt2(t.price)}</span>
           </div>`).join('')}
         </div>
       </div>`;
