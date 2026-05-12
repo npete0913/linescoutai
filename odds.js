@@ -117,10 +117,6 @@ exports.handler = async (event) => {
       return { statusCode: 200, headers: { "Content-Type": "application/json", "x-requests-remaining": remaining || "" }, body: JSON.stringify([]) };
     }
 
-    // Debug pitcher map
-    console.log("Pitcher map keys:", Object.keys(pitcherMap).join(", "));
-    console.log("Odds API home teams:", oddsData.slice(0,3).map(e => e.home_team).join(", "));
-
     // Step 2: streaks
     const { streakMap, fuzzyLookup, normalize } = buildStreakMap(scoresData);
     const getStreak = name => streakMap[name] || streakMap[fuzzyLookup[normalize(name)]] || streakMap[fuzzyLookup[name.split(' ').pop().toLowerCase()]] || { streak: 0, type: null, last5: [] };
@@ -227,7 +223,26 @@ exports.handler = async (event) => {
         if (weather.precip >= 40) signals.push(`${weather.precip}% chance of rain — watch for delays`);
       }
 
-      return { home, away, time, homeML, awayML, homeRL, awayRL, overOdds, underOdds, total, homeStreak, awayStreak, weather, signals };
+      // Match pitchers
+      let pitchers = { home: "TBD", away: "TBD" };
+      const homeLast = home.split(" ").pop().toLowerCase();
+      const awayLast = away.split(" ").pop().toLowerCase();
+      // Try direct match first
+      if (pitcherMap[home]) {
+        pitchers = { home: pitcherMap[home].home, away: pitcherMap[home].away };
+      } else {
+        // Match by last word of team name
+        for (const [mlbTeam, data] of Object.entries(pitcherMap)) {
+          const mlbHomeLast = mlbTeam.split(" ").pop().toLowerCase();
+          const mlbAwayLast = (data.awayTeam || "").split(" ").pop().toLowerCase();
+          if (mlbHomeLast === homeLast || mlbAwayLast === awayLast) {
+            pitchers = { home: data.home, away: data.away };
+            break;
+          }
+        }
+      }
+
+      return { home, away, time, homeML, awayML, homeRL, awayRL, overOdds, underOdds, total, homeStreak, awayStreak, weather, signals, pitchers };
     });
 
     // Step 5: AI analysis — batched to avoid token limits
