@@ -370,10 +370,96 @@ Respond with ONLY the briefing text — no labels, no JSON, just the paragraph.`
       };
     });
 
+    // Step 7: fetch alt lines for top 5 value games (saves API quota)
+    const topGames = enriched
+      .filter(e => e.homeStreak || e.awayStreak) // has data
+      .slice(0, 5); // limit to 5 games
+
+    const altLinesMap = {};
+    await Promise.all(topGames.map(async (event) => {
+      try {
+        const altUrl = `https://api.the-odds-api.com/v4/sports/baseball_mlb/events/${event.id}/odds?regions=us&markets=alternate_spreads,alternate_totals&oddsFormat=american&bookmakers=draftkings,fanduel&apiKey=${API_KEY}`;
+        const altRes = await fetch(altUrl);
+        if (!altRes.ok) return;
+        const altData = await altRes.json();
+
+        const altLines = { spreads: [], totals: [] };
+
+        for (const book of (altData.bookmakers || [])) {
+          for (const mkt of (book.markets || [])) {
+            if (mkt.key === "alternate_spreads") {
+              for (const o of mkt.outcomes) {
+                if (o.name === event.home_team) {
+                  altLines.spreads.push({ point: o.point, price: o.price, book: book.key });
+                }
+              }
+            }
+            if (mkt.key === "alternate_totals") {
+              for (const o of mkt.outcomes) {
+                if (o.name === "Over") {
+                  altLines.totals.push({ point: o.point, price: o.price, book: book.key });
+                }
+              }
+            }
+          }
+        }
+
+        // Detect mispriced ladder — each 0.5 point should cost ~15 cents of juice
+        // Flag when a closer-to-standard line is cheaper than it should be
+        const mispriced = [];
+
+        // Sort spreads by point (ascending = more favorable for home)
+        const spreads = altLines.spreads.sort((a, b) => b.point - a.point);
+        for (let i = 0; i < spreads.length - 1; i++) {
+          const curr = spreads[i], next = spreads[i + 1];
+          const pointDiff = Math.abs(curr.point - next.point);
+          const priceDiff = curr.price - next.price; // positive = curr is better
+          const expectedCost = pointDiff * 15; // ~15 cents per half point
+          if (priceDiff < expectedCost * 0.5) { // paying less than half expected
+            mispriced.push({
+              type: "SPREAD",
+              line: `${next.point > 0 ? "+" : ""}${next.point}`,
+              price: next.price,
+              vs: `${curr.point > 0 ? "+" : ""}${curr.point} at ${curr.price > 0 ? "+" : ""}${curr.price}`,
+              savings: Math.round(expectedCost - priceDiff),
+              book: next.book,
+            });
+          }
+        }
+
+        // Sort totals by point (descending = over is harder to hit)
+        const totals = altLines.totals.sort((a, b) => a.point - b.point);
+        for (let i = 0; i < totals.length - 1; i++) {
+          const curr = totals[i], next = totals[i + 1];
+          const pointDiff = Math.abs(next.point - curr.point);
+          const priceDiff = next.price - curr.price;
+          const expectedCost = pointDiff * 12;
+          if (priceDiff < expectedCost * 0.5) {
+            mispriced.push({
+              type: "TOTAL",
+              line: `Over ${next.point}`,
+              price: next.price,
+              vs: `Over ${curr.point} at ${curr.price > 0 ? "+" : ""}${curr.price}`,
+              savings: Math.round(expectedCost - priceDiff),
+              book: next.book,
+            });
+          }
+        }
+
+        altLinesMap[event.id] = { spreads: altLines.spreads, totals: altLines.totals, mispriced };
+      } catch (_) {}
+    }));
+
+    // Attach alt lines to enriched games
+    const finalGames = enriched.map(e => ({
+      ...e,
+      altLines: altLinesMap[e.id] || null,
+    }));
+
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json", "x-requests-remaining": remaining || "" },
-      body: JSON.stringify({ games: enriched, briefing: dailyBriefing }),
+      body: JSON.stringify({ games: finalGames, briefing: dailyBriefing }),
     };
 
   } catch (err) {
