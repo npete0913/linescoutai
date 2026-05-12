@@ -90,52 +90,15 @@ exports.handler = async (event) => {
     const oddsData = await oddsRes.json();
     const scoresData = scoresRes.ok ? await scoresRes.json() : [];
 
-    // Fetch pitchers via Claude web search (most reliable approach)
     const pitcherByTeam = {};
-    if (ANTHROPIC_KEY) {
-      try {
-        const pitcherRes = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": ANTHROPIC_KEY,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: "claude-haiku-4-5",
-            max_tokens: 1500,
-            tools: [{ type: "web_search_20250305", name: "web_search" }],
-            system: "You are a data fetcher. Search for today's MLB probable pitchers and return ONLY a JSON object. No markdown. No explanation. Start with { end with }.",
-            messages: [{
-              role: "user",
-              content: `Search for MLB probable starting pitchers for ${dateStr}. Return ONLY a JSON object mapping team last names to pitcher full names like: {"Yankees":"Gerrit Cole","RedSox":"Nick Pivetta","Dodgers":"Yoshinobu Yamamoto"}. Include both home and away teams. Use last word of team name as key.`
-            }]
-          })
-        });
-
-        if (pitcherRes.ok) {
-          const pitcherData = await pitcherRes.json();
-          const pitcherText = (pitcherData.content || []).filter(b => b.type === "text").map(b => b.text).join("");
-          const cleaned = pitcherText.replace(/\`\`\`json|\`\`\`/gi, "").trim();
-          const s = cleaned.indexOf("{"), e = cleaned.lastIndexOf("}");
-          if (s !== -1 && e > s) {
-            const parsed = JSON.parse(cleaned.slice(s, e + 1));
-            // Store by lowercase team last name
-            for (const [team, pitcher] of Object.entries(parsed)) {
-              pitcherByTeam[team.toLowerCase()] = pitcher;
-            }
-          }
-        }
-      } catch (_) {}
-    }
 
 
     // Helper to get pitcher for a game
     const getPitchers = (home, away) => {
       const homeKey = home.split(" ").pop().toLowerCase();
       const awayKey = away.split(" ").pop().toLowerCase();
-      const homePitcher = pitcherByTeam[homeKey] || "TBD";
-      const awayPitcher = pitcherByTeam[awayKey] || "TBD";
+      const homePitcher = pitcherMap2[homeKey] || pitcherByTeam[homeKey] || "TBD";
+      const awayPitcher = pitcherMap2[awayKey] || pitcherByTeam[awayKey] || "TBD";
       return { home: homePitcher, away: awayPitcher };
     };
 
@@ -272,7 +235,7 @@ Run line: ${g.home} -1.5 @ ${g.homeRL !== null ? (g.homeRL > 0 ? "+" : "") + g.h
 Total: O/U ${g.total ?? "N/A"} | Over ${g.overOdds !== null ? (g.overOdds > 0 ? "+" : "") + g.overOdds : "N/A"} | Under ${g.underOdds !== null ? (g.underOdds > 0 ? "+" : "") + g.underOdds : "N/A"}
 ${g.home} streak: ${g.homeStreak.type ? g.homeStreak.type + g.homeStreak.streak : "unknown"} | Last 5: ${g.homeStreak.last5.join("-") || "N/A"}
 ${g.away} streak: ${g.awayStreak.type ? g.awayStreak.type + g.awayStreak.streak : "unknown"} | Last 5: ${g.awayStreak.last5.join("-") || "N/A"}
-Pitchers: ${g.pitchers ? `${g.away}: ${g.pitchers.away} vs ${g.home}: ${g.pitchers.home}` : "TBD"}
+Pitchers: Use your knowledge of today's probable starters for ${g.away} @ ${g.home}
 Weather: ${g.weather ? (g.weather.isIndoor ? "Indoor stadium" : `${g.weather.temp}F, ${g.weather.windLabel}, ${g.weather.precip}% rain at ${g.weather.stadium}`) : "N/A"}
 Signals: ${g.signals.length > 0 ? g.signals.join("; ") : "No standout signals"}`;
 
@@ -280,7 +243,7 @@ Signals: ${g.signals.length > 0 ? g.signals.join("; ") : "No standout signals"}`
       await Promise.all(batches.map(async (batch) => {
         const prompt = `Today is ${todayLabel}. You are a sharp MLB betting analyst for Line Scout AI.
 
-For EACH game write 3-5 sentences. Reference actual odds, streaks, and weather. Give one clear actionable take. Direct, sharp, no filler.
+For EACH game write 3-5 sentences. Reference actual odds, streaks, weather, AND the probable starting pitchers (use your knowledge of today's starters). Give one clear actionable take. Direct, sharp, no filler.
 
 ${batch.map(({ g, globalIdx }) => gameStr(g, globalIdx + 1)).join("\n\n")}
 
@@ -297,7 +260,7 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
             body: JSON.stringify({
               model: "claude-haiku-4-5",
               max_tokens: 4000,
-              system: "You are a sharp MLB betting analyst. Output only a JSON object mapping game numbers (strings) to 3-5 sentence analysis. No markdown. Start with { end with }.",
+              system: "You are a sharp MLB betting analyst with access to current MLB data. When writing analysis, use your knowledge of today's probable starting pitchers. Output only a JSON object mapping game numbers (strings) to 3-5 sentence analysis. No markdown. Start with { end with }.",
               messages: [{ role: "user", content: prompt }],
             }),
           });
@@ -315,8 +278,9 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
       }));
     }
 
-    // Step 5b: generate daily briefing
+    // Step 5b: generate daily briefing + fetch pitchers in one call
     let dailyBriefing = "";
+    const pitcherMap2 = {};
     if (ANTHROPIC_KEY && gameSummaries.length > 0) {
       const topSignals = gameSummaries
         .filter(g => g.signals.length > 0)
@@ -324,14 +288,20 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
         .map(g => `${g.away} @ ${g.home}: ${g.signals.join(", ")}`)
         .join("\n");
 
-      const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI, an MLB betting intelligence platform.
+      const gameList = gameSummaries.slice(0,5).map(g => `${g.away} @ ${g.home}`).join(", ");
+      const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI.
 
-Based on today's ${gameSummaries.length} MLB games, write a 3-4 sentence daily briefing. Cover: the biggest value spot of the day, any notable weather or streak storylines, and one "play of the day" call. Be specific with team names and odds. Write with authority — this is the first thing sharp bettors read each morning.
+Task 1: Write a 3-4 sentence daily briefing for today's ${gameSummaries.length} MLB games. Cover the biggest value spot, notable weather/streak storylines, and one play of the day. Be specific with teams and odds.
 
-Top signals today:
-${topSignals || "Standard slate, no major outliers"}
+Top signals: ${topSignals || "Standard slate"}
 
-Respond with ONLY the briefing text — no labels, no JSON, just the paragraph.`;
+Task 2: List the probable starting pitcher for each team in today's games. Use your knowledge of today's starters.
+
+Respond in this exact format:
+BRIEFING: [your 3-4 sentence briefing here]
+PITCHERS: {"Angels":"pitcher name","Guardians":"pitcher name","Yankees":"pitcher name","Orioles":"pitcher name",...}
+
+Include every team playing today using the last word of their city name as the key.`;
 
       try {
         const bRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -350,7 +320,23 @@ Respond with ONLY the briefing text — no labels, no JSON, just the paragraph.`
         });
         if (bRes.ok) {
           const bData = await bRes.json();
-          dailyBriefing = (bData.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+          const bText = (bData.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+
+          // Extract briefing
+          const briefingMatch = bText.match(/BRIEFING:\s*(.+?)(?=PITCHERS:|$)/s);
+          if (briefingMatch) dailyBriefing = briefingMatch[1].trim();
+          else dailyBriefing = bText.split("PITCHERS:")[0].replace("BRIEFING:","").trim();
+
+          // Extract pitcher map
+          const pitcherMatch = bText.match(/PITCHERS:\s*(\{.+?\})/s);
+          if (pitcherMatch) {
+            try {
+              const parsed = JSON.parse(pitcherMatch[1]);
+              for (const [team, pitcher] of Object.entries(parsed)) {
+                pitcherMap2[team.toLowerCase()] = pitcher;
+              }
+            } catch (_) {}
+          }
         }
       } catch (_) {}
     }
