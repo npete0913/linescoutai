@@ -81,30 +81,43 @@ exports.handler = async (event) => {
     const dateStr = which === "tomorrow"
       ? new Date(today.getTime() + 86400000).toISOString().split("T")[0]
       : today.toISOString().split("T")[0];
-    const mlbScheduleUrl = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${dateStr}&hydrate=probablePitcher`;
+    // Fetch pitchers from ESPN API (more reliable than MLB Stats API)
+    const espnUrl = `https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates=${dateStr.replace(/-/g,'')}`;
 
-    const [oddsRes, scoresRes, mlbRes] = await Promise.all([
+    const [oddsRes, scoresRes, espnRes] = await Promise.all([
       fetch(oddsUrl),
       fetch(scoresUrl),
-      fetch(mlbScheduleUrl).catch(() => null),
+      fetch(espnUrl).catch(() => null),
     ]);
 
     const remaining = oddsRes.headers.get("x-requests-remaining");
     const oddsData = await oddsRes.json();
     const scoresData = scoresRes.ok ? await scoresRes.json() : [];
 
-    // Build pitcher map: "Home Team Name" -> { home: "Pitcher", away: "Pitcher" }
+    // Build pitcher map from ESPN data
     const pitcherMap = {};
-    if (mlbRes && mlbRes.ok) {
+    if (espnRes && espnRes.ok) {
       try {
-        const mlbData = await mlbRes.json();
-        for (const date of (mlbData.dates || [])) {
-          for (const game of (date.games || [])) {
-            const homeTeam = game.teams?.home?.team?.name;
-            const awayTeam = game.teams?.away?.team?.name;
-            const homePitcher = game.teams?.home?.probablePitcher?.fullName || "TBD";
-            const awayPitcher = game.teams?.away?.probablePitcher?.fullName || "TBD";
-            if (homeTeam) pitcherMap[homeTeam] = { home: homePitcher, away: awayPitcher, awayTeam };
+        const espnData = await espnRes.json();
+        for (const event of (espnData.events || [])) {
+          const comp = event.competitions?.[0];
+          if (!comp) continue;
+          const homeComp = comp.competitors?.find(c => c.homeAway === "home");
+          const awayComp = comp.competitors?.find(c => c.homeAway === "away");
+          const homeTeam = homeComp?.team?.displayName || homeComp?.team?.shortDisplayName;
+          const awayTeam = awayComp?.team?.displayName || awayComp?.team?.shortDisplayName;
+
+          // ESPN probable pitchers are in the probables array
+          const probables = comp.probables || [];
+          let homePitcher = "TBD", awayPitcher = "TBD";
+          for (const p of probables) {
+            const athlete = p.athlete?.displayName || p.athlete?.fullName || "TBD";
+            if (p.homeAway === "home") homePitcher = athlete;
+            if (p.homeAway === "away") awayPitcher = athlete;
+          }
+
+          if (homeTeam) {
+            pitcherMap[homeTeam] = { home: homePitcher, away: awayPitcher, awayTeam };
           }
         }
       } catch (_) {}
@@ -223,7 +236,26 @@ exports.handler = async (event) => {
         if (weather.precip >= 40) signals.push(`${weather.precip}% chance of rain — watch for delays`);
       }
 
-      return { home, away, time, homeML, awayML, homeRL, awayRL, overOdds, underOdds, total, homeStreak, awayStreak, weather, signals };
+      // Match pitchers
+      let pitchers = { home: "TBD", away: "TBD" };
+      const homeLast = home.split(" ").pop().toLowerCase();
+      const awayLast = away.split(" ").pop().toLowerCase();
+      // Try direct match first
+      if (pitcherMap[home]) {
+        pitchers = { home: pitcherMap[home].home, away: pitcherMap[home].away };
+      } else {
+        // Match by last word of team name
+        for (const [mlbTeam, data] of Object.entries(pitcherMap)) {
+          const mlbHomeLast = mlbTeam.split(" ").pop().toLowerCase();
+          const mlbAwayLast = (data.awayTeam || "").split(" ").pop().toLowerCase();
+          if (mlbHomeLast === homeLast || mlbAwayLast === awayLast) {
+            pitchers = { home: data.home, away: data.away };
+            break;
+          }
+        }
+      }
+
+      return { home, away, time, homeML, awayML, homeRL, awayRL, overOdds, underOdds, total, homeStreak, awayStreak, weather, signals, pitchers };
     });
 
     // Step 5: AI analysis — batched to avoid token limits
