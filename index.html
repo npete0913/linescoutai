@@ -240,6 +240,10 @@
     border: 2px solid #141820; border-top-color: var(--green);
     border-radius: 50%; animation: spin 0.7s linear infinite;
   }
+  .alt-toggle { cursor:pointer; background:none; border:1px solid rgba(236,72,153,0.25); color:#ec4899; padding:4px 12px; border-radius:4px; font-family:monospace; font-size:10px; letter-spacing:0.08em; transition:all 0.15s; display:flex; align-items:center; gap:6px; }
+  .alt-toggle:hover { background:rgba(236,72,153,0.08); }
+  .alt-drawer { overflow:hidden; max-height:0; transition:max-height 0.3s ease; }
+  .alt-drawer.open { max-height:500px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .loading-text { font-family: 'DM Mono', monospace; font-size: 11px; color: #1e2530; letter-spacing: 0.1em; animation: pulse 1.5s ease infinite; }
   @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
@@ -888,23 +892,34 @@ function renderRL(g) {
       const spreads = (g.altLines.spreads || []).sort((a,b) => b.point - a.point);
       if (spreads.length === 0 && mp.length === 0) return '';
       const fmt2 = n => n === null ? 'N/A' : (n > 0 ? '+' : '') + n;
-      // Only show top 3 most interesting: closest to 0, standard -1.5, and best +money
-      const keyLines = spreads.filter((s,i,arr) =>
-        s.point === -1.5 || s.point === -0.5 || s.point === -2.5 ||
-        (s.price > 0 && arr.findIndex(x => x.price > 0) === i)
-      ).slice(0, 3);
-      if (keyLines.length === 0 && mp.length === 0) return '';
-      return `<div style="margin-top:10px;padding:10px 14px;background:rgba(236,72,153,0.03);border:1px solid rgba(236,72,153,0.12);border-radius:6px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <span style="font-family:monospace;font-size:9px;color:#ec4899;letter-spacing:0.1em">🔀 ALT RUN LINES</span>
-          ${mp.length > 0 ? `<span style="font-family:monospace;font-size:9px;color:#ec4899;background:rgba(236,72,153,0.15);border:1px solid rgba(236,72,153,0.3);padding:2px 8px;border-radius:3px">⚡ MISPRICED: ${mp[0].line} ${fmt2(mp[0].price)} (~${mp[0].savings}¢ cheap on ${mp[0].book.replace('draftkings','DK').replace('fanduel','FD')})</span>` : ''}
+      const uid = 'alt_rl_' + g.home.replace(/\s/g,'') + g.away.replace(/\s/g,'');
+      return `<div style="margin-top:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="alt-toggle" onclick="toggleAlt('${uid}')">
+            🔀 ALT RUN LINES <span id="${uid}_arrow">▼</span>
+            ${spreads.length > 0 ? `<span style="opacity:0.6">(${spreads.length})</span>` : ''}
+          </button>
+          ${mp.length > 0 ? `<span style="font-family:monospace;font-size:9px;color:#ec4899;background:rgba(236,72,153,0.12);border:1px solid rgba(236,72,153,0.3);padding:3px 10px;border-radius:3px">⚡ MISPRICED: ${mp[0].line} ${fmt2(mp[0].price)} (~${mp[0].savings}¢ cheap · ${mp[0].book.replace('draftkings','DK').replace('fanduel','FD')})</span>` : ''}
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${keyLines.map(s => `<div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.03);border:1px solid ${s.price>=0?'rgba(0,255,135,0.2)':s.price>=-130?'rgba(255,183,0,0.15)':'rgba(255,71,87,0.2)'};border-radius:5px;padding:6px 12px">
-            <span style="font-family:monospace;font-size:10px;color:#4a5060">${s.point > 0 ? '+' : ''}${s.point}</span>
-            <span style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:${s.price>=0?'#00ff87':s.price>=-130?'#ffb700':'#ff4757'}">${fmt2(s.price)}</span>
-            <span style="font-family:monospace;font-size:8px;color:#252d38">${s.book.replace('draftkings','DK').replace('fanduel','FD').replace('betmgm','MGM').replace('caesars','CZS')}</span>
-          </div>`).join('')}
+        <div class="alt-drawer" id="${uid}">
+          <div style="margin-top:8px;padding:12px;background:rgba(236,72,153,0.03);border:1px solid rgba(236,72,153,0.12);border-radius:6px;max-height:240px;overflow-y:auto">
+            <table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px">
+              <thead><tr style="color:#3a4050;font-size:9px;letter-spacing:0.08em">
+                <th style="text-align:left;padding:4px 8px">LINE</th>
+                <th style="text-align:center;padding:4px 8px">ODDS</th>
+                <th style="text-align:center;padding:4px 8px">BOOK</th>
+                <th style="text-align:center;padding:4px 8px">VALUE</th>
+              </tr></thead>
+              <tbody>
+                ${spreads.map(s => `<tr style="border-top:1px solid rgba(255,255,255,0.04)">
+                  <td style="padding:6px 8px;color:#aaa;font-weight:700">${s.point > 0 ? '+' : ''}${s.point}</td>
+                  <td style="padding:6px 8px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:18px;color:${s.price>=0?'#00ff87':s.price>=-130?'#ffb700':'#ff4757'}">${fmt2(s.price)}</td>
+                  <td style="padding:6px 8px;text-align:center;color:#3a4050">${s.book.replace('draftkings','DK').replace('fanduel','FD').replace('betmgm','MGM').replace('caesars','CZS').replace('thescore','SCR')}</td>
+                  <td style="padding:6px 8px;text-align:center">${s.price >= 0 ? '<span style="color:#00ff87;font-size:9px">● VALUE</span>' : s.price >= -115 ? '<span style="color:#ffb700;font-size:9px">● FAIR</span>' : '<span style="color:#ff4757;font-size:9px">● STEEP</span>'}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>`;
     })()}
@@ -940,20 +955,32 @@ function renderTot(g) {
       const mp = (g.altLines.mispriced || []).filter(m => m.type === 'TOTAL');
       if (totals.length === 0 && mp.length === 0) return '';
       const fmt2 = n => n === null ? 'N/A' : (n > 0 ? '+' : '') + n;
-      // Show 3 key totals: standard, one below, one above
-      const stdIdx = totals.findIndex(t => t.point === g.total) || 0;
-      const keyTotals = totals.slice(Math.max(0, stdIdx-1), stdIdx+2);
-      if (keyTotals.length === 0) return '';
-      return `<div style="margin-top:10px;padding:10px 14px;background:rgba(236,72,153,0.03);border:1px solid rgba(236,72,153,0.12);border-radius:6px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-          <span style="font-family:monospace;font-size:9px;color:#ec4899;letter-spacing:0.1em">🔀 ALT TOTALS</span>
-          ${mp.length > 0 ? `<span style="font-family:monospace;font-size:9px;color:#ec4899;background:rgba(236,72,153,0.15);border:1px solid rgba(236,72,153,0.3);padding:2px 8px;border-radius:3px">⚡ MISPRICED: ${mp[0].line} ${fmt2(mp[0].price)}</span>` : ''}
+      const uid = 'alt_tot_' + g.home.replace(/\s/g,'') + g.away.replace(/\s/g,'');
+      return `<div style="margin-top:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="alt-toggle" onclick="toggleAlt('${uid}')">
+            🔀 ALT TOTALS <span id="${uid}_arrow">▼</span>
+            ${totals.length > 0 ? `<span style="opacity:0.6">(${totals.length})</span>` : ''}
+          </button>
+          ${mp.length > 0 ? `<span style="font-family:monospace;font-size:9px;color:#ec4899;background:rgba(236,72,153,0.12);border:1px solid rgba(236,72,153,0.3);padding:3px 10px;border-radius:3px">⚡ MISPRICED: ${mp[0].line} ${fmt2(mp[0].price)}</span>` : ''}
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${keyTotals.map(t => `<div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.03);border:1px solid ${t.price>=0?'rgba(0,212,255,0.2)':t.price>=-130?'rgba(255,183,0,0.15)':'rgba(255,71,87,0.2)'};border-radius:5px;padding:6px 12px">
-            <span style="font-family:monospace;font-size:10px;color:#4a5060">O${t.point}</span>
-            <span style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:${t.price>=0?'#00d4ff':t.price>=-130?'#ffb700':'#ff4757'}">${fmt2(t.price)}</span>
-          </div>`).join('')}
+        <div class="alt-drawer" id="${uid}">
+          <div style="margin-top:8px;padding:12px;background:rgba(236,72,153,0.03);border:1px solid rgba(236,72,153,0.12);border-radius:6px;max-height:240px;overflow-y:auto">
+            <table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px">
+              <thead><tr style="color:#3a4050;font-size:9px;letter-spacing:0.08em">
+                <th style="text-align:left;padding:4px 8px">TOTAL</th>
+                <th style="text-align:center;padding:4px 8px">OVER</th>
+                <th style="text-align:center;padding:4px 8px">VALUE</th>
+              </tr></thead>
+              <tbody>
+                ${totals.map(t => `<tr style="border-top:1px solid rgba(255,255,255,0.04)">
+                  <td style="padding:6px 8px;color:#aaa;font-weight:700">O${t.point}</td>
+                  <td style="padding:6px 8px;text-align:center;font-family:'Bebas Neue',sans-serif;font-size:18px;color:${t.price>=0?'#00d4ff':t.price>=-130?'#ffb700':'#ff4757'}">${fmt2(t.price)}</td>
+                  <td style="padding:6px 8px;text-align:center">${t.price >= 0 ? '<span style="color:#00d4ff;font-size:9px">● VALUE</span>' : t.price >= -115 ? '<span style="color:#ffb700;font-size:9px">● FAIR</span>' : '<span style="color:#ff4757;font-size:9px">● STEEP</span>'}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>`;
     })()}
@@ -1042,6 +1069,14 @@ function setLoading(on, which) {
     document.getElementById('emptyBox').style.display = 'none';
   }
 }
+function toggleAlt(uid) {
+  const drawer = document.getElementById(uid);
+  const arrow = document.getElementById(uid + '_arrow');
+  if (!drawer) return;
+  drawer.classList.toggle('open');
+  if (arrow) arrow.textContent = drawer.classList.contains('open') ? '▲' : '▼';
+}
+
 function showError(msg) { if (msg && msg.includes("reading 'away'")) { console.warn('Suppressed render error:', msg); return; } const e=document.getElementById('errorBox'); e.textContent='⚠️ '+msg; e.style.display='block'; }
 function hideError() { document.getElementById('errorBox').style.display='none'; }
 </script>
