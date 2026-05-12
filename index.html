@@ -489,7 +489,7 @@ async function scan(which) {
 
 // ── PROCESS ───────────────────────────────────────────────────────────────────
 function processGames(raw) {
-  return raw.map(event => {
+  return (raw || []).filter(event => event && event.home_team && event.away_team).map(event => {
     const home = event.home_team, away = event.away_team;
     const time = new Date(event.commence_time).toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', timeZoneName:'short' });
     let homeMls=[], awayMls=[], homeRLs=[], awayRLs=[], overs=[], unders=[], totals=[];
@@ -633,6 +633,7 @@ function buildTopPlays(games) {
   const candidates = [];
 
   for (const g of games) {
+    if (!g || !g.home || !g.away) continue;
     // --- RUN LINE PLAYS ---
     if (g.flags.includes('RUN LINE VALUE')) {
       const edge = calcEdge(g);
@@ -821,7 +822,7 @@ function renderRL(g) {
           <span class="home-team">${g.home}</span>
           <span class="game-time">${g.time}</span>
         </div>
-        ${(g.pitchers && (g.pitchers.away !== 'TBD' || g.pitchers.home !== 'TBD')) || true ? `<div style="font-family:monospace;font-size:10px;color:#2a3540;margin-bottom:4px;letter-spacing:0.03em">
+        ${g.pitchers ? `<div style="font-family:monospace;font-size:10px;color:#2a3540;margin-bottom:4px;letter-spacing:0.03em">
           <span style="color:#3a4550">${g.away.split(' ').pop()}: </span><span style="color:#4a5560">${g.pitchers.away}</span>
           <span style="color:#252d38;margin:0 6px">·</span>
           <span style="color:#3a4550">${g.home.split(' ').pop()}: </span><span style="color:#4a5560">${g.pitchers.home}</span>
@@ -832,7 +833,7 @@ function renderRL(g) {
 
       </div>
       ${(()=>{
-        if (!g || !g.home || !g.away) return '<div></div>';
+        if (!g || !g.home || !g.away || g.homeML === undefined) return '';
         const favIsHome = g.homeML !== null && g.awayML !== null ? g.homeML < g.awayML : g.homeML !== null && g.homeML < 0;
         const fav = favIsHome ? g.home : g.away;
         const dog = favIsHome ? g.away : g.home;
