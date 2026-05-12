@@ -212,6 +212,7 @@
   .badge-wind-out { background: #22c55e; color: #060809; }
   .badge-wind-in  { background: #3b82f6; color: #fff; }
   .badge-rain     { background: #6366f1; color: #fff; }
+  .badge-alt      { background: #ec4899; color: #fff; }
 
   .card-stats { display: flex; gap: 22px; flex-wrap: wrap; }
   .sc { text-align: center; min-width: 60px; }
@@ -558,7 +559,7 @@ function processGames(raw) {
       totalAnalysis = `Over priced at ${fmt(overOdds)}, better than standard -110 — possible sharp over action on this game.`;
     }
 
-    return { home, away, time, homeML, awayML, homeRL, awayRL, flags, analysis, total, overOdds, underOdds, totalFlags, totalAnalysis, aiAnalysis: event.aiAnalysis || null, homeStreak: event.homeStreak || null, awayStreak: event.awayStreak || null, weather: event.weather || null, bookOdds: event.bookOdds || {}, pitchers: event.pitchers || null };
+    return { home, away, time, homeML, awayML, homeRL, awayRL, flags, analysis, total, overOdds, underOdds, totalFlags, totalAnalysis, aiAnalysis: event.aiAnalysis || null, homeStreak: event.homeStreak || null, awayStreak: event.awayStreak || null, weather: event.weather || null, bookOdds: event.bookOdds || {}, pitchers: event.pitchers || null, altLines: event.altLines || null };
   });
 }
 
@@ -767,7 +768,7 @@ function renderFilters() {
 function setFilter(f) { filterMode=f; renderFilters(); renderCards(); }
 
 function badgeHTML(f) {
-  const m = {'RUN LINE VALUE':'badge-rl','SHORT LINE':'badge-sh','HOT STREAK':'badge-hot','FADE CANDIDATE':'badge-fade','OVER VALUE':'badge-ov','LOW TOTAL':'badge-low','SHARP OVER':'badge-sov','WIND OUT':'badge-wind-out','WIND IN':'badge-wind-in','RAIN RISK':'badge-rain'};
+  const m = {'RUN LINE VALUE':'badge-rl','SHORT LINE':'badge-sh','HOT STREAK':'badge-hot','FADE CANDIDATE':'badge-fade','OVER VALUE':'badge-ov','LOW TOTAL':'badge-low','SHARP OVER':'badge-sov','WIND OUT':'badge-wind-out','WIND IN':'badge-wind-in','RAIN RISK':'badge-rain','ALT LINE ALERT':'badge-alt'};
   return `<span class="badge ${m[f]||''}">${f}</span>`;
 }
 
@@ -877,6 +878,31 @@ function renderRL(g) {
       </div>`;
     })()}
     ${g.aiAnalysis?`<div class="card-note">${g.aiAnalysis}</div>`:g.analysis?`<div class="card-note">💡 ${g.analysis}</div>`:''}
+    ${(()=>{
+      if (!g.altLines) return '';
+      const mp = g.altLines.mispriced || [];
+      const spreads = (g.altLines.spreads || []).sort((a,b) => b.point - a.point).slice(0, 6);
+      if (spreads.length === 0 && mp.length === 0) return '';
+      const fmt2 = n => n === null ? 'N/A' : (n > 0 ? '+' : '') + n;
+      return `<div style="margin-top:12px;padding:12px 14px;background:rgba(236,72,153,0.04);border:1px solid rgba(236,72,153,0.15);border-radius:6px">
+        <div style="font-family:monospace;font-size:9px;color:#ec4899;letter-spacing:0.12em;margin-bottom:10px">🔀 ALT RUN LINE LADDER</div>
+        ${mp.length > 0 ? `<div style="margin-bottom:10px">${mp.map(m => `
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(236,72,153,0.08);border:1px solid rgba(236,72,153,0.3);border-radius:5px;margin-bottom:5px">
+            <span style="font-family:monospace;font-size:9px;color:#ec4899;font-weight:700">⚡ MISPRICED</span>
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff">${m.line}</span>
+            <span style="font-family:serif;font-size:16px;color:#ec4899;font-weight:700">${fmt2(m.price)}</span>
+            <span style="font-family:monospace;font-size:9px;color:#4a5060">vs ${m.vs}</span>
+            <span style="font-family:monospace;font-size:9px;color:#ec4899">~${m.savings}¢ cheap · ${m.book.toUpperCase()}</span>
+          </div>`).join('')}</div>` : ''}
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${spreads.map(s => `<div style="text-align:center;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:5px;padding:6px 10px;min-width:56px">
+            <div style="font-family:monospace;font-size:9px;color:#3a4050;margin-bottom:2px">${s.point > 0 ? '+' : ''}${s.point}</div>
+            <div style="font-family:serif;font-size:16px;font-weight:700;color:${s.price >= 0 ? '#00ff87' : '#666'}">${fmt2(s.price)}</div>
+            <div style="font-family:monospace;font-size:8px;color:#252d38">${s.book.substring(0,2).toUpperCase()}</div>
+          </div>`).join('')}
+        </div>
+      </div>`;
+    })()}
   </div>`;
 }
 
@@ -902,6 +928,28 @@ function renderTot(g) {
       </div>
     </div>
     ${g.weather && !g.weather.isIndoor ? `<div style="display:flex;gap:12px;align-items:center;margin-top:10px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:5px;font-family:monospace;font-size:11px;color:#4a5060"><span>${g.weather.temp}F</span><span>${g.weather.windLabel}</span>${g.weather.precip >= 15 ? `<span>${g.weather.precip}% rain</span>` : ''}<span style="color:#252d38">${g.weather.stadium}</span></div>` : ''}
+    ${(()=>{
+      if (!g.altLines) return '';
+      const totals = (g.altLines.totals || []).sort((a,b) => a.point - b.point).slice(0, 6);
+      const mp = (g.altLines.mispriced || []).filter(m => m.type === 'TOTAL');
+      if (totals.length === 0) return '';
+      const fmt2 = n => n === null ? 'N/A' : (n > 0 ? '+' : '') + n;
+      return `<div style="margin-top:10px;padding:12px 14px;background:rgba(236,72,153,0.04);border:1px solid rgba(236,72,153,0.15);border-radius:6px">
+        <div style="font-family:monospace;font-size:9px;color:#ec4899;letter-spacing:0.12em;margin-bottom:8px">🔀 ALT TOTAL LADDER</div>
+        ${mp.length > 0 ? mp.map(m => `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:rgba(236,72,153,0.08);border:1px solid rgba(236,72,153,0.3);border-radius:4px;margin-bottom:7px;font-family:monospace;font-size:10px">
+          <span style="color:#ec4899;font-weight:700">⚡ MISPRICED</span>
+          <span style="color:#fff">${m.line}</span>
+          <span style="color:#ec4899">${fmt2(m.price)}</span>
+          <span style="color:#4a5060">vs ${m.vs} · ~${m.savings}¢ cheap</span>
+        </div>`).join('') : ''}
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          ${totals.map(t => `<div style="text-align:center;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:5px;padding:5px 8px;min-width:52px">
+            <div style="font-family:monospace;font-size:8px;color:#3a4050;margin-bottom:1px">O${t.point}</div>
+            <div style="font-family:serif;font-size:15px;font-weight:700;color:${t.price >= 0 ? '#00d4ff' : '#666'}">${fmt2(t.price)}</div>
+          </div>`).join('')}
+        </div>
+      </div>`;
+    })()}
     ${g.aiAnalysis?`<div class="card-note">${g.aiAnalysis}</div>`:g.totalAnalysis?`<div class="card-note">💡 ${g.totalAnalysis}</div>`:''}
   </div>`;
 }
@@ -929,66 +977,4 @@ function renderRecordBadge() {
         <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:#aaa;line-height:1">${runLine.w}-${runLine.l}</div>
       </div>
       <div>
-        <div style="font-family:monospace;font-size:9px;color:#3a4050;letter-spacing:0.1em;margin-bottom:2px">OVERS</div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:#aaa;line-height:1">${over.w}-${over.l}</div>
-      </div>
-      ${overall.p > 0 ? `<div style="font-family:monospace;font-size:10px;color:#252d38">${overall.p} pending</div>` : ''}
-    </div>`;
-  el.style.display = 'block';
-}
-
-function renderTopPlay(play, idx) {
-  const confColor = play.confidence >= 75 ? '#00ff87' : play.confidence >= 55 ? '#ffb700' : '#747d8c';
-  const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉';
-  const barWidth = play.confidence;
-  return `<div class="card card-default" style="border-color:${play.confidence>=75?'rgba(0,255,135,0.25)':play.confidence>=55?'rgba(255,183,0,0.2)':'rgba(255,255,255,0.08)'}">
-    <div class="card-accent" style="background:linear-gradient(90deg,${confColor},transparent)"></div>
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
-      <div style="flex:1;min-width:200px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-          <span style="font-size:22px">${medal}</span>
-          <div>
-            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:#fff;letter-spacing:0.03em">${play.bet}</div>
-            <div style="font-family:monospace;font-size:10px;color:#3a4050">${play.team}${play.opponent?' vs '+play.opponent:''} · ${play.time}</div>
-          </div>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-          <span style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:3px;padding:2px 8px;font-family:monospace;font-size:9px;color:#555;letter-spacing:0.08em">${play.type}</span>
-          ${play.reasons.map(r=>`<span style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:3px;padding:2px 8px;font-family:monospace;font-size:9px;color:#444">${r}</span>`).join('')}
-        </div>
-      </div>
-      <div style="text-align:center;min-width:90px">
-        <div style="font-family:monospace;font-size:9px;color:#3a4050;letter-spacing:0.1em;margin-bottom:4px">CONFIDENCE</div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:42px;line-height:1;color:${confColor}">${play.confidence}%</div>
-        <div style="font-family:monospace;font-size:9px;color:#3a4050;margin-top:2px">ODDS ${play.odds}</div>
-      </div>
-    </div>
-    <!-- Confidence bar -->
-    <div style="height:3px;background:rgba(255,255,255,0.05);border-radius:2px;margin:8px 0 12px">
-      <div style="height:3px;width:${barWidth}%;background:${confColor};border-radius:2px;transition:width 0.6s ease"></div>
-    </div>
-    ${play.analysis?`<div class="card-note">${play.analysis}</div>`:''}
-  </div>`;
-}
-
-// ── UI HELPERS ────────────────────────────────────────────────────────────────
-function setLoading(on, which) {
-  document.getElementById('loadingBox').style.display = on?'block':'none';
-  document.getElementById('cardsContainer').style.display = on?'none':'block';
-  document.getElementById('btnToday').disabled = on;
-  document.getElementById('btnTmr').disabled = on;
-  if (on) {
-    document.getElementById('loadingText').textContent = which==='tomorrow' ? "FETCHING TOMORROW'S ODDS..." : 'FETCHING LIVE ODDS...';
-    document.getElementById('statsRow').style.display = 'none';
-    document.getElementById('briefingBox').style.display = 'none';
-    document.getElementById('tabsRow').style.display = 'none';
-    document.getElementById('filtersRow').style.display = 'none';
-    document.getElementById('legendBox').style.display = 'none';
-    document.getElementById('emptyBox').style.display = 'none';
-  }
-}
-function showError(msg) { const e=document.getElementById('errorBox'); e.textContent='⚠️ '+msg; e.style.display='block'; }
-function hideError() { document.getElementById('errorBox').style.display='none'; }
-</script>
-</body>
-</html>
+        <div style
