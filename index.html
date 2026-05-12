@@ -1038,4 +1038,8 @@ function setLoading(on, which) {
     document.getElementById('emptyBox').style.display = 'none';
   }
 }
-function showError(msg) { const e=document.getElementById('errorBox'); e.textContent='
+function showError(msg) { const e=document.getElementById('errorBox'); e.textContent='⚠️ '+msg; e.style.display='block'; }
+function hideError() { document.getElementById('errorBox').style.display='none'; }
+</script>
+</body>
+</html>
