@@ -81,63 +81,62 @@ exports.handler = async (event) => {
     const dateStr = which === "tomorrow"
       ? new Date(today.getTime() + 86400000).toISOString().split("T")[0]
       : today.toISOString().split("T")[0];
-    // Fetch pitchers from MLB Stats API
-    const mlbUrl = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${dateStr}&hydrate=probablePitcher`;
-
-    const [oddsRes, scoresRes, mlbRes] = await Promise.all([
+    const [oddsRes, scoresRes] = await Promise.all([
       fetch(oddsUrl),
       fetch(scoresUrl),
-      fetch(mlbUrl).catch(() => null),
     ]);
 
     const remaining = oddsRes.headers.get("x-requests-remaining");
     const oddsData = await oddsRes.json();
     const scoresData = scoresRes.ok ? await scoresRes.json() : [];
 
-    // Build pitcher map keyed by commence time for reliable matching
-    const pitcherByTime = {};
+    // Fetch pitchers via Claude web search (most reliable approach)
     const pitcherByTeam = {};
-    if (mlbRes && mlbRes.ok) {
+    if (ANTHROPIC_KEY) {
       try {
-        const mlbData = await mlbRes.json();
-        for (const date of (mlbData.dates || [])) {
-          for (const game of (date.games || [])) {
-            const homeTeam = game.teams?.home?.team?.name || "";
-            const awayTeam = game.teams?.away?.team?.name || "";
-            const homePitcher = game.teams?.home?.probablePitcher?.fullName || null;
-            const awayPitcher = game.teams?.away?.probablePitcher?.fullName || null;
-            const gameTime = game.gameDate || "";
+        const pitcherRes = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": ANTHROPIC_KEY,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5",
+            max_tokens: 1500,
+            tools: [{ type: "web_search_20250305", name: "web_search" }],
+            system: "You are a data fetcher. Search for today's MLB probable pitchers and return ONLY a JSON object. No markdown. No explanation. Start with { end with }.",
+            messages: [{
+              role: "user",
+              content: `Search for MLB probable starting pitchers for ${dateStr}. Return ONLY a JSON object mapping team last names to pitcher full names like: {"Yankees":"Gerrit Cole","RedSox":"Nick Pivetta","Dodgers":"Yoshinobu Yamamoto"}. Include both home and away teams. Use last word of team name as key.`
+            }]
+          })
+        });
 
-            const entry = {
-              home: homePitcher || "TBD",
-              away: awayPitcher || "TBD",
-              homeTeam, awayTeam
-            };
-
-            // Key by time (first 16 chars = YYYY-MM-DDTHH:MM)
-            if (gameTime) pitcherByTime[gameTime.substring(0, 16)] = entry;
-
-            // Key by normalized team name (last word)
-            const homeKey = homeTeam.split(" ").pop().toLowerCase();
-            const awayKey = awayTeam.split(" ").pop().toLowerCase();
-            pitcherByTeam[homeKey] = entry;
-            pitcherByTeam[awayKey] = entry;
+        if (pitcherRes.ok) {
+          const pitcherData = await pitcherRes.json();
+          const pitcherText = (pitcherData.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+          const cleaned = pitcherText.replace(/\`\`\`json|\`\`\`/gi, "").trim();
+          const s = cleaned.indexOf("{"), e = cleaned.lastIndexOf("}");
+          if (s !== -1 && e > s) {
+            const parsed = JSON.parse(cleaned.slice(s, e + 1));
+            // Store by lowercase team last name
+            for (const [team, pitcher] of Object.entries(parsed)) {
+              pitcherByTeam[team.toLowerCase()] = pitcher;
+            }
           }
         }
-      } catch (e) {
-        console.log("MLB API error:", e.message);
-      }
+      } catch (_) {}
     }
 
+
     // Helper to get pitcher for a game
-    const getPitchers = (home, away, commenceTime) => {
-      // Try time-based match first
-      const timeKey = (commenceTime || "").substring(0, 16);
-      if (pitcherByTime[timeKey]) return pitcherByTime[timeKey];
-      // Fall back to team name last word
+    const getPitchers = (home, away) => {
       const homeKey = home.split(" ").pop().toLowerCase();
       const awayKey = away.split(" ").pop().toLowerCase();
-      return pitcherByTeam[homeKey] || pitcherByTeam[awayKey] || { home: "TBD", away: "TBD" };
+      const homePitcher = pitcherByTeam[homeKey] || "TBD";
+      const awayPitcher = pitcherByTeam[awayKey] || "TBD";
+      return { home: homePitcher, away: awayPitcher };
     };
 
     if (!oddsRes.ok) {
@@ -253,7 +252,7 @@ exports.handler = async (event) => {
         if (weather.precip >= 40) signals.push(`${weather.precip}% chance of rain — watch for delays`);
       }
 
-      const pitchers = getPitchers(home, away, event.commence_time);
+      const pitchers = getPitchers(home, away);
       return { home, away, time, homeML, awayML, homeRL, awayRL, overOdds, underOdds, total, homeStreak, awayStreak, weather, signals, pitchers };
     });
 
