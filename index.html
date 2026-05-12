@@ -826,11 +826,11 @@ function renderRL(g) {
           <span class="home-team">${g.home}</span>
           <span class="game-time">${g.time}</span>
         </div>
-        ${g.pitchers ? `<div style="font-family:monospace;font-size:10px;color:#2a3540;margin-bottom:4px;letter-spacing:0.03em">
-          <span style="color:#3a4550">${g.away.split(' ').pop()}: </span><span style="color:#4a5560">${g.pitchers.away}</span>
-          <span style="color:#252d38;margin:0 6px">·</span>
-          <span style="color:#3a4550">${g.home.split(' ').pop()}: </span><span style="color:#4a5560">${g.pitchers.home}</span>
-        </div>` : ''}
+        ${g.pitchers && (g.pitchers.away !== 'TBD' || g.pitchers.home !== 'TBD') ? `<div style="font-family:monospace;font-size:10px;color:#3a4060;margin-bottom:6px;display:flex;gap:10px;align-items:center">
+          <span>⚾ <span style="color:#4a5570">${g.away.split(' ').pop()}:</span> <span style="color:#6a7a8a">${g.pitchers.away}</span></span>
+          <span style="color:#1e2530">|</span>
+          <span><span style="color:#4a5570">${g.home.split(' ').pop()}:</span> <span style="color:#6a7a8a">${g.pitchers.home}</span></span>
+        </div>` : g.pitchers && g.pitchers.away === 'TBD' && g.pitchers.home === 'TBD' ? `<div style="font-family:monospace;font-size:9px;color:#1e2530;margin-bottom:6px">⚾ Probable starters TBD</div>` : ''}
         <div style="display:flex;gap:5px;flex-wrap:wrap">
         </div>
         <div class="badges">${g.flags.map(badgeHTML).join('')}</div>
