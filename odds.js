@@ -81,47 +81,64 @@ exports.handler = async (event) => {
     const dateStr = which === "tomorrow"
       ? new Date(today.getTime() + 86400000).toISOString().split("T")[0]
       : today.toISOString().split("T")[0];
-    // Fetch pitchers from ESPN API (more reliable than MLB Stats API)
-    const espnUrl = `https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates=${dateStr.replace(/-/g,'')}`;
+    // Fetch pitchers from MLB Stats API
+    const mlbUrl = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${dateStr}&hydrate=probablePitcher`;
 
-    const [oddsRes, scoresRes, espnRes] = await Promise.all([
+    const [oddsRes, scoresRes, mlbRes] = await Promise.all([
       fetch(oddsUrl),
       fetch(scoresUrl),
-      fetch(espnUrl).catch(() => null),
+      fetch(mlbUrl).catch(() => null),
     ]);
 
     const remaining = oddsRes.headers.get("x-requests-remaining");
     const oddsData = await oddsRes.json();
     const scoresData = scoresRes.ok ? await scoresRes.json() : [];
 
-    // Build pitcher map from ESPN data
-    const pitcherMap = {};
-    if (espnRes && espnRes.ok) {
+    // Build pitcher map keyed by commence time for reliable matching
+    const pitcherByTime = {};
+    const pitcherByTeam = {};
+    if (mlbRes && mlbRes.ok) {
       try {
-        const espnData = await espnRes.json();
-        for (const event of (espnData.events || [])) {
-          const comp = event.competitions?.[0];
-          if (!comp) continue;
-          const homeComp = comp.competitors?.find(c => c.homeAway === "home");
-          const awayComp = comp.competitors?.find(c => c.homeAway === "away");
-          const homeTeam = homeComp?.team?.displayName || homeComp?.team?.shortDisplayName;
-          const awayTeam = awayComp?.team?.displayName || awayComp?.team?.shortDisplayName;
+        const mlbData = await mlbRes.json();
+        for (const date of (mlbData.dates || [])) {
+          for (const game of (date.games || [])) {
+            const homeTeam = game.teams?.home?.team?.name || "";
+            const awayTeam = game.teams?.away?.team?.name || "";
+            const homePitcher = game.teams?.home?.probablePitcher?.fullName || null;
+            const awayPitcher = game.teams?.away?.probablePitcher?.fullName || null;
+            const gameTime = game.gameDate || "";
 
-          // ESPN probable pitchers are in the probables array
-          const probables = comp.probables || [];
-          let homePitcher = "TBD", awayPitcher = "TBD";
-          for (const p of probables) {
-            const athlete = p.athlete?.displayName || p.athlete?.fullName || "TBD";
-            if (p.homeAway === "home") homePitcher = athlete;
-            if (p.homeAway === "away") awayPitcher = athlete;
-          }
+            const entry = {
+              home: homePitcher || "TBD",
+              away: awayPitcher || "TBD",
+              homeTeam, awayTeam
+            };
 
-          if (homeTeam) {
-            pitcherMap[homeTeam] = { home: homePitcher, away: awayPitcher, awayTeam };
+            // Key by time (first 16 chars = YYYY-MM-DDTHH:MM)
+            if (gameTime) pitcherByTime[gameTime.substring(0, 16)] = entry;
+
+            // Key by normalized team name (last word)
+            const homeKey = homeTeam.split(" ").pop().toLowerCase();
+            const awayKey = awayTeam.split(" ").pop().toLowerCase();
+            pitcherByTeam[homeKey] = entry;
+            pitcherByTeam[awayKey] = entry;
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        console.log("MLB API error:", e.message);
+      }
     }
+
+    // Helper to get pitcher for a game
+    const getPitchers = (home, away, commenceTime) => {
+      // Try time-based match first
+      const timeKey = (commenceTime || "").substring(0, 16);
+      if (pitcherByTime[timeKey]) return pitcherByTime[timeKey];
+      // Fall back to team name last word
+      const homeKey = home.split(" ").pop().toLowerCase();
+      const awayKey = away.split(" ").pop().toLowerCase();
+      return pitcherByTeam[homeKey] || pitcherByTeam[awayKey] || { home: "TBD", away: "TBD" };
+    };
 
     if (!oddsRes.ok) {
       return { statusCode: oddsRes.status, body: JSON.stringify({ error: oddsData.message || "Odds API error" }) };
@@ -236,25 +253,7 @@ exports.handler = async (event) => {
         if (weather.precip >= 40) signals.push(`${weather.precip}% chance of rain — watch for delays`);
       }
 
-      // Match pitchers
-      let pitchers = { home: "TBD", away: "TBD" };
-      const homeLast = home.split(" ").pop().toLowerCase();
-      const awayLast = away.split(" ").pop().toLowerCase();
-      // Try direct match first
-      if (pitcherMap[home]) {
-        pitchers = { home: pitcherMap[home].home, away: pitcherMap[home].away };
-      } else {
-        // Match by last word of team name
-        for (const [mlbTeam, data] of Object.entries(pitcherMap)) {
-          const mlbHomeLast = mlbTeam.split(" ").pop().toLowerCase();
-          const mlbAwayLast = (data.awayTeam || "").split(" ").pop().toLowerCase();
-          if (mlbHomeLast === homeLast || mlbAwayLast === awayLast) {
-            pitchers = { home: data.home, away: data.away };
-            break;
-          }
-        }
-      }
-
+      const pitchers = getPitchers(home, away, event.commence_time);
       return { home, away, time, homeML, awayML, homeRL, awayRL, overOdds, underOdds, total, homeStreak, awayStreak, weather, signals, pitchers };
     });
 
