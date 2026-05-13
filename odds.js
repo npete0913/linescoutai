@@ -91,6 +91,7 @@ exports.handler = async (event) => {
     const scoresData = scoresRes.ok ? await scoresRes.json() : [];
 
     const pitcherByTeam = {};
+    const pitcherMap2 = {}; // filled after briefing call
 
 
     // Helper to get pitcher for a game
@@ -280,7 +281,6 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
 
     // Step 5b: generate daily briefing + fetch pitchers in one call
     let dailyBriefing = "";
-    const pitcherMap2 = {};
     if (ANTHROPIC_KEY && gameSummaries.length > 0) {
       const topSignals = gameSummaries
         .filter(g => g.signals.length > 0)
