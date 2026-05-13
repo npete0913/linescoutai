@@ -91,6 +91,7 @@ exports.handler = async (event) => {
     const scoresData = scoresRes.ok ? await scoresRes.json() : [];
 
     const pitcherByTeam = {};
+    const pitcherMap2 = {}; // filled after briefing call
 
 
     // Helper to get pitcher for a game
@@ -280,7 +281,6 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
 
     // Step 5b: generate daily briefing + fetch pitchers in one call
     let dailyBriefing = "";
-    const pitcherMap2 = {};
     if (ANTHROPIC_KEY && gameSummaries.length > 0) {
       const topSignals = gameSummaries
         .filter(g => g.signals.length > 0)
@@ -313,8 +313,8 @@ Include every team playing today using the last word of their city name as the k
           },
           body: JSON.stringify({
             model: "claude-haiku-4-5",
-            max_tokens: 400,
-            system: "You are a sharp MLB betting analyst writing a daily briefing. Be direct, specific, and authoritative. No fluff.",
+            max_tokens: 1200,
+            system: "You are a sharp MLB betting analyst. Return the briefing and pitcher JSON exactly as requested. No extra text.",
             messages: [{ role: "user", content: briefingPrompt }],
           }),
         });
