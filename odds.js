@@ -217,7 +217,7 @@ exports.handler = async (event) => {
       }
 
       const pitchers = getPitchers(home, away);
-      return { home, away, time, homeML, awayML, homeRL, awayRL, overOdds, underOdds, total, homeStreak, awayStreak, weather, signals, pitchers };
+      return { home, away, time, commenceTime: event.commence_time || null, homeML, awayML, homeRL, awayRL, overOdds, underOdds, total, homeStreak, awayStreak, weather, signals, pitchers };
     });
 
     // Step 5: AI analysis — batched to avoid token limits
@@ -282,8 +282,9 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
     // Step 5b: generate daily briefing and fetch pitchers in parallel
     let dailyBriefing = "";
     if (ANTHROPIC_KEY && gameSummaries.length > 0) {
+      const nowUtc = new Date();
       const topSignals = gameSummaries
-        .filter(g => g.signals.length > 0)
+        .filter(g => g.signals.length > 0 && new Date(g.commenceTime || 0) > nowUtc)
         .slice(0, 5)
         .map(g => `${g.away} @ ${g.home}: ${g.signals.join(", ")}`)
         .join("\n");
