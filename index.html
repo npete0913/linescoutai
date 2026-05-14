@@ -355,7 +355,7 @@
 
   <!-- DAILY BRIEFING -->
   <div id="briefingBox" style="display:none;background:linear-gradient(135deg,rgba(0,255,135,0.04),rgba(0,212,255,0.03));border:1px solid rgba(0,255,135,0.15);border-radius:10px;padding:18px 22px;margin-bottom:22px;">
-    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--green);letter-spacing:0.15em;margin-bottom:10px">📋 TODAY'S BRIEFING</div>
+    <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--green);letter-spacing:0.15em;margin-bottom:10px" id="briefingLabel">📋 TODAY'S BRIEFING</div>
     <div id="briefingText" style="font-size:13px;color:#8a9ab0;line-height:1.8;font-style:italic"></div>
   </div>
 
@@ -447,6 +447,7 @@ async function scan(which) {
     if (briefing) {
       document.getElementById('briefingText').textContent = briefing;
       document.getElementById('briefingBox').style.display = 'block';
+      document.getElementById('briefingLabel').textContent = which === 'tomorrow' ? "📋 TOMORROW'S BRIEFING" : "📋 TODAY'S BRIEFING";
     }
 
     // Save today's top plays and load record
@@ -829,7 +830,7 @@ function renderRL(g) {
           <span class="home-team">${g.home}</span>
           <span class="game-time">${g.time}</span>
         </div>
-        ${g.pitchers ? `<div style="display:flex;gap:12px;align-items:center;margin-bottom:8px;font-family:monospace;font-size:11px">
+        ${g.pitchers && g.pitchers.away !== 'TBD' ? `<div style="display:flex;gap:12px;align-items:center;margin-bottom:8px;font-family:monospace;font-size:11px">
           <span style="color:#00ff87;font-size:10px">⚾</span>
           <span style="color:#6a7a8a">${g.away.split(' ').pop()}:</span>
           <span style="color:${g.pitchers.away==='TBD'?'#3a4a5a':'#c8d8e8'};font-weight:600">${g.pitchers.away}</span>

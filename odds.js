@@ -314,7 +314,8 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
         .map(g => `${g.away} @ ${g.home} (${g.time}): ML ${g.homeML !== null ? (g.homeML > 0 ? "+" : "") + g.homeML : "N/A"} | RL ${g.homeRL !== null ? (g.homeRL > 0 ? "+" : "") + g.homeRL : "N/A"} | O/U ${g.total || "N/A"} ${g.signals.length ? "| SIGNALS: " + g.signals.join("; ") : ""}`)
         .join("\n");
 
-      const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI.
+      const scanDay = which === "tomorrow" ? "tomorrow" : "today";
+      const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI. These are ${scanDay}'s games.
 
 I am giving you REAL live odds data from our betting API right now. Analyze this data and write a sharp 3-4 sentence daily briefing. Do not say you lack access to data — this IS the data.
 
@@ -344,10 +345,21 @@ Write a sharp briefing covering: the biggest value spot with specific odds, any 
             messages: [{ role: "user", content: briefingPrompt }],
           }),
         }).catch(() => null),
-        // Fetch pitchers from ESPN scoreboard API
-        fetch(`https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates=${dateStr.replace(/-/g,"")}`, {
-          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" }
-        }).catch(() => null),
+        // Try multiple pitcher sources
+        (async () => {
+          const sources = [
+            `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${dateStr}&hydrate=probablePitcher`,
+            `https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates=${dateStr.replace(/-/g,"")}`,
+            `https://bdfed.stitch.mlbinfra.com/bdfed/stats/game?stitch_env=prod&season=${dateStr.substring(0,4)}&sportId=1&gameType=R&limit=50&offset=0&sortStat=battingAverage&order=desc`,
+          ];
+          for (const url of sources) {
+            try {
+              const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" } });
+              if (r.ok) return r;
+            } catch (_) {}
+          }
+          return null;
+        })(),
       ]);
 
       // Parse briefing
