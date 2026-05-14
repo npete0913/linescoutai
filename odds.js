@@ -344,9 +344,9 @@ Write a sharp briefing covering: the biggest value spot with specific odds, any 
             messages: [{ role: "user", content: briefingPrompt }],
           }),
         }).catch(() => null),
-        // Fetch pitchers from MLB Stats API directly
-        fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${dateStr}&hydrate=probablePitcher`, {
-          headers: { "User-Agent": "LineScoutAI/1.0" }
+        // Fetch pitchers from ESPN scoreboard API
+        fetch(`https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates=${dateStr.replace(/-/g,"")}`, {
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" }
         }).catch(() => null),
       ]);
 
@@ -358,24 +358,29 @@ Write a sharp briefing covering: the biggest value spot with specific odds, any 
         } catch (_) {}
       }
 
-      // Parse pitchers from MLB Stats API
+      // Parse pitchers from ESPN scoreboard
       if (pRes && pRes.ok) {
         try {
-          const mlbData = await pRes.json();
-          for (const date of (mlbData.dates || [])) {
-            for (const game of (date.games || [])) {
-              const homeTeam = game.teams?.home?.team?.name || "";
-              const awayTeam = game.teams?.away?.team?.name || "";
-              const homePitcher = game.teams?.home?.probablePitcher?.fullName;
-              const awayPitcher = game.teams?.away?.probablePitcher?.fullName;
-              if (homeTeam) {
-                const homeKey = homeTeam.split(" ").pop().toLowerCase();
-                if (homePitcher) pitcherMap2[homeKey] = homePitcher;
-              }
-              if (awayTeam) {
-                const awayKey = awayTeam.split(" ").pop().toLowerCase();
-                if (awayPitcher) pitcherMap2[awayKey] = awayPitcher;
-              }
+          const espnData = await pRes.json();
+          for (const event of (espnData.events || [])) {
+            const comp = event.competitions?.[0];
+            if (!comp) continue;
+            // ESPN stores probable pitchers in 'probables' array
+            const probables = comp.probables || [];
+            for (const p of probables) {
+              const pitcher = p.athlete?.displayName || p.athlete?.fullName;
+              const homeAway = p.homeAway;
+              if (!pitcher) continue;
+              const competitor = comp.competitors?.find(c => c.homeAway === homeAway);
+              const teamName = competitor?.team?.displayName || competitor?.team?.name || "";
+              const teamKey = teamName.split(" ").pop().toLowerCase();
+              if (teamKey && pitcher) pitcherMap2[teamKey] = pitcher;
+            }
+            // Also check competitors directly for pitcher info
+            for (const comp2 of (comp.competitors || [])) {
+              const teamKey = (comp2.team?.displayName || "").split(" ").pop().toLowerCase();
+              const pitcher = comp2.probables?.[0]?.athlete?.displayName;
+              if (teamKey && pitcher) pitcherMap2[teamKey] = pitcher;
             }
           }
         } catch (_) {}
