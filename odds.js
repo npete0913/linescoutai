@@ -308,14 +308,20 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
         .filter(Boolean)
         .join("\n");
 
-      const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI, an MLB betting intelligence platform.
+      // If no upcoming games, use all games for briefing context
+      const gamesForBriefing = upcomingGames || gameSummaries
+        .slice(0, 6)
+        .map(g => `${g.away} @ ${g.home} (${g.time}): ML ${g.homeML !== null ? (g.homeML > 0 ? "+" : "") + g.homeML : "N/A"} | RL ${g.homeRL !== null ? (g.homeRL > 0 ? "+" : "") + g.homeRL : "N/A"} | O/U ${g.total || "N/A"} ${g.signals.length ? "| SIGNALS: " + g.signals.join("; ") : ""}`)
+        .join("\n");
 
-Here are today's upcoming games with live odds data:
-${upcomingGames || "No upcoming games found"}
+      const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI.
 
-Based on this data, write a sharp 3-4 sentence daily briefing. Cover: the biggest value spot of the day with specific odds, any notable weather or streak storylines, and one clear play of the day recommendation. Write with authority — be direct and specific.`;
+I am giving you REAL live odds data from our betting API right now. Analyze this data and write a sharp 3-4 sentence daily briefing. Do not say you lack access to data — this IS the data.
 
-      const pitcherPrompt = `Search for MLB probable starting pitchers for ${dateStr}. Return ONLY a valid JSON object mapping each team's last name to their starting pitcher's full name. Use the last word of the team name as the key. Teams playing today: ${teamList}. Example format: {"Yankees":"Gerrit Cole","RedSox":"Tanner Houck"}. Return ONLY the JSON, nothing else.`;
+Games and odds:
+${gamesForBriefing}
+
+Write a sharp briefing covering: the biggest value spot with specific odds, any notable signals, and one clear play of the day. Be direct. Reference the actual numbers above.`;
 
       const [bRes, pRes] = await Promise.all([
         fetch("https://api.anthropic.com/v1/messages", {
@@ -332,12 +338,15 @@ Based on this data, write a sharp 3-4 sentence daily briefing. Cover: the bigges
           method: "POST",
           headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
           body: JSON.stringify({
-            model: "claude-sonnet-4-5",
-            max_tokens: 1000,
-            tools: [{ type: "web_search_20250305", name: "web_search" }],
-            system: "Search for today's MLB probable starting pitchers and return ONLY a JSON object. No markdown. No explanation.",
-            messages: [{ role: "user", content: pitcherPrompt }],
+            model: "claude-haiku-4-5",
+            max_tokens: 500,
+            system: "You are a sharp MLB betting analyst. Be direct and specific.",
+            messages: [{ role: "user", content: briefingPrompt }],
           }),
+        }).catch(() => null),
+        // Fetch pitchers from MLB Stats API directly
+        fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${dateStr}&hydrate=probablePitcher`, {
+          headers: { "User-Agent": "LineScoutAI/1.0" }
         }).catch(() => null),
       ]);
 
@@ -349,17 +358,24 @@ Based on this data, write a sharp 3-4 sentence daily briefing. Cover: the bigges
         } catch (_) {}
       }
 
-      // Parse pitchers
+      // Parse pitchers from MLB Stats API
       if (pRes && pRes.ok) {
         try {
-          const pData = await pRes.json();
-          const pText = (pData.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
-          const cleaned = pText.replace(/\`\`\`json|\`\`\`/gi, "").trim();
-          const s = cleaned.indexOf("{"), e = cleaned.lastIndexOf("}");
-          if (s !== -1 && e > s) {
-            const parsed = JSON.parse(cleaned.slice(s, e + 1));
-            for (const [team, pitcher] of Object.entries(parsed)) {
-              pitcherMap2[team.toLowerCase()] = pitcher;
+          const mlbData = await pRes.json();
+          for (const date of (mlbData.dates || [])) {
+            for (const game of (date.games || [])) {
+              const homeTeam = game.teams?.home?.team?.name || "";
+              const awayTeam = game.teams?.away?.team?.name || "";
+              const homePitcher = game.teams?.home?.probablePitcher?.fullName;
+              const awayPitcher = game.teams?.away?.probablePitcher?.fullName;
+              if (homeTeam) {
+                const homeKey = homeTeam.split(" ").pop().toLowerCase();
+                if (homePitcher) pitcherMap2[homeKey] = homePitcher;
+              }
+              if (awayTeam) {
+                const awayKey = awayTeam.split(" ").pop().toLowerCase();
+                if (awayPitcher) pitcherMap2[awayKey] = awayPitcher;
+              }
             }
           }
         } catch (_) {}
