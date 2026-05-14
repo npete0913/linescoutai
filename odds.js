@@ -283,8 +283,10 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
     let dailyBriefing = "";
     if (ANTHROPIC_KEY && gameSummaries.length > 0) {
       const nowUtc = new Date();
-      const topSignals = gameSummaries
-        .filter(g => g.signals.length > 0 && new Date(g.commenceTime || 0) > nowUtc)
+      const topSignals = oddsData
+        .filter(e => e.commence_time && new Date(e.commence_time) > nowUtc)
+        .map(e => gameSummaries.find(g => g.home === e.home_team))
+        .filter(g => g && g.signals.length > 0)
         .slice(0, 5)
         .map(g => `${g.away} @ ${g.home}: ${g.signals.join(", ")}`)
         .join("\n");
@@ -294,10 +296,16 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
         g.away.split(" ").pop()
       ]))].join(", ");
 
-      const upcomingGames = gameSummaries
-        .filter(g => new Date(g.commenceTime || 0) > nowUtc)
+      // Use oddsData directly so we have raw commence_time for reliable filtering
+      const upcomingGames = oddsData
+        .filter(e => e.commence_time && new Date(e.commence_time) > nowUtc)
         .slice(0, 8)
-        .map(g => `${g.away} @ ${g.home} (${g.time}): ML ${g.homeML !== null ? (g.homeML > 0 ? "+" : "") + g.homeML : "N/A"} | RL ${g.homeRL !== null ? (g.homeRL > 0 ? "+" : "") + g.homeRL : "N/A"} | O/U ${g.total || "N/A"} ${g.signals.length ? "| SIGNALS: " + g.signals.join("; ") : ""}`)
+        .map(e => {
+          const gs = gameSummaries.find(g => g.home === e.home_team);
+          if (!gs) return null;
+          return `${gs.away} @ ${gs.home} (${gs.time}): ML ${gs.homeML !== null ? (gs.homeML > 0 ? "+" : "") + gs.homeML : "N/A"} | RL ${gs.homeRL !== null ? (gs.homeRL > 0 ? "+" : "") + gs.homeRL : "N/A"} | O/U ${gs.total || "N/A"} ${gs.signals.length ? "| SIGNALS: " + gs.signals.join("; ") : ""}`;
+        })
+        .filter(Boolean)
         .join("\n");
 
       const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI, an MLB betting intelligence platform.
@@ -316,7 +324,7 @@ Based on this data, write a sharp 3-4 sentence daily briefing. Cover: the bigges
           body: JSON.stringify({
             model: "claude-haiku-4-5",
             max_tokens: 500,
-            system: "You are a sharp MLB betting analyst writing a daily briefing. Be direct and specific.",
+            system: "You are a sharp MLB betting analyst for Line Scout AI. You have been provided with real live odds data from a betting API. Analyze ONLY the data provided to you — do not refuse or ask for more information. Write the briefing based solely on the odds and signals in the prompt.",
             messages: [{ role: "user", content: briefingPrompt }],
           }),
         }).catch(() => null),
