@@ -279,7 +279,7 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
       }));
     }
 
-    // Step 5b: generate daily briefing + fetch pitchers in one call
+    // Step 5b: generate daily briefing and fetch pitchers in parallel
     let dailyBriefing = "";
     if (ANTHROPIC_KEY && gameSummaries.length > 0) {
       const topSignals = gameSummaries
@@ -288,57 +288,62 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
         .map(g => `${g.away} @ ${g.home}: ${g.signals.join(", ")}`)
         .join("\n");
 
-      const gameList = gameSummaries.slice(0,5).map(g => `${g.away} @ ${g.home}`).join(", ");
-      const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI.
+      const teamList = [...new Set(gameSummaries.flatMap(g => [
+        g.home.split(" ").pop(),
+        g.away.split(" ").pop()
+      ]))].join(", ");
 
-Task 1: Write a 3-4 sentence daily briefing for today's ${gameSummaries.length} MLB games. Cover the biggest value spot, notable weather/streak storylines, and one play of the day. Be specific with teams and odds.
+      const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI. Write a 3-4 sentence daily briefing covering the biggest value spot, notable weather/streak storylines, and one play of the day. Be specific with team names and odds. Top signals: ${topSignals || "Standard slate"}`;
 
-Top signals: ${topSignals || "Standard slate"}
+      const pitcherPrompt = `Search for MLB probable starting pitchers for ${dateStr}. Return ONLY a valid JSON object mapping each team's last name to their starting pitcher's full name. Use the last word of the team name as the key. Teams playing today: ${teamList}. Example format: {"Yankees":"Gerrit Cole","RedSox":"Tanner Houck"}. Return ONLY the JSON, nothing else.`;
 
-Task 2: List the probable starting pitcher for each team in today's games. Use your knowledge of today's starters.
-
-Respond in this exact format:
-BRIEFING: [your 3-4 sentence briefing here]
-PITCHERS: {"Angels":"pitcher name","Guardians":"pitcher name","Yankees":"pitcher name","Orioles":"pitcher name",...}
-
-Include every team playing today using the last word of their city name as the key.`;
-
-      try {
-        const bRes = await fetch("https://api.anthropic.com/v1/messages", {
+      const [bRes, pRes] = await Promise.all([
+        fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": ANTHROPIC_KEY,
-            "anthropic-version": "2023-06-01",
-          },
+          headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
           body: JSON.stringify({
             model: "claude-haiku-4-5",
-            max_tokens: 1200,
-            system: "You are a sharp MLB betting analyst. Return the briefing and pitcher JSON exactly as requested. No extra text.",
+            max_tokens: 500,
+            system: "You are a sharp MLB betting analyst writing a daily briefing. Be direct and specific.",
             messages: [{ role: "user", content: briefingPrompt }],
           }),
-        });
-        if (bRes.ok) {
+        }).catch(() => null),
+        fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-5",
+            max_tokens: 1000,
+            tools: [{ type: "web_search_20250305", name: "web_search" }],
+            system: "Search for today's MLB probable starting pitchers and return ONLY a JSON object. No markdown. No explanation.",
+            messages: [{ role: "user", content: pitcherPrompt }],
+          }),
+        }).catch(() => null),
+      ]);
+
+      // Parse briefing
+      if (bRes && bRes.ok) {
+        try {
           const bData = await bRes.json();
-          const bText = (bData.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+          dailyBriefing = (bData.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+        } catch (_) {}
+      }
 
-          // Extract briefing
-          const briefingMatch = bText.match(/BRIEFING:\s*(.+?)(?=PITCHERS:|$)/s);
-          if (briefingMatch) dailyBriefing = briefingMatch[1].trim();
-          else dailyBriefing = bText.split("PITCHERS:")[0].replace("BRIEFING:","").trim();
-
-          // Extract pitcher map
-          const pitcherMatch = bText.match(/PITCHERS:\s*(\{.+?\})/s);
-          if (pitcherMatch) {
-            try {
-              const parsed = JSON.parse(pitcherMatch[1]);
-              for (const [team, pitcher] of Object.entries(parsed)) {
-                pitcherMap2[team.toLowerCase()] = pitcher;
-              }
-            } catch (_) {}
+      // Parse pitchers
+      if (pRes && pRes.ok) {
+        try {
+          const pData = await pRes.json();
+          const pText = (pData.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+          const cleaned = pText.replace(/\`\`\`json|\`\`\`/gi, "").trim();
+          const s = cleaned.indexOf("{"), e = cleaned.lastIndexOf("}");
+          if (s !== -1 && e > s) {
+            const parsed = JSON.parse(cleaned.slice(s, e + 1));
+            for (const [team, pitcher] of Object.entries(parsed)) {
+              pitcherMap2[team.toLowerCase()] = pitcher;
+            }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
     }
 
     // Step 6: enrich and return
