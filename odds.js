@@ -294,7 +294,18 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
         g.away.split(" ").pop()
       ]))].join(", ");
 
-      const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI. Write a 3-4 sentence daily briefing covering the biggest value spot, notable weather/streak storylines, and one play of the day. Be specific with team names and odds. Top signals: ${topSignals || "Standard slate"}`;
+      const upcomingGames = gameSummaries
+        .filter(g => new Date(g.commenceTime || 0) > nowUtc)
+        .slice(0, 8)
+        .map(g => `${g.away} @ ${g.home} (${g.time}): ML ${g.homeML !== null ? (g.homeML > 0 ? "+" : "") + g.homeML : "N/A"} | RL ${g.homeRL !== null ? (g.homeRL > 0 ? "+" : "") + g.homeRL : "N/A"} | O/U ${g.total || "N/A"} ${g.signals.length ? "| SIGNALS: " + g.signals.join("; ") : ""}`)
+        .join("\n");
+
+      const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI, an MLB betting intelligence platform.
+
+Here are today's upcoming games with live odds data:
+${upcomingGames || "No upcoming games found"}
+
+Based on this data, write a sharp 3-4 sentence daily briefing. Cover: the biggest value spot of the day with specific odds, any notable weather or streak storylines, and one clear play of the day recommendation. Write with authority — be direct and specific.`;
 
       const pitcherPrompt = `Search for MLB probable starting pitchers for ${dateStr}. Return ONLY a valid JSON object mapping each team's last name to their starting pitcher's full name. Use the last word of the team name as the key. Teams playing today: ${teamList}. Example format: {"Yankees":"Gerrit Cole","RedSox":"Tanner Houck"}. Return ONLY the JSON, nothing else.`;
 
