@@ -563,7 +563,7 @@ function processGames(raw) {
       totalAnalysis = `Over priced at ${fmt(overOdds)}, better than standard -110 — possible sharp over action on this game.`;
     }
 
-    return { home, away, time, homeML, awayML, homeRL, awayRL, flags, analysis, total, overOdds, underOdds, totalFlags, totalAnalysis, aiAnalysis: event.aiAnalysis || null, homeStreak: event.homeStreak || null, awayStreak: event.awayStreak || null, weather: event.weather || null, bookOdds: event.bookOdds || {}, pitchers: event.pitchers || null, altLines: event.altLines || null };
+    return { home, away, time, commenceTime: event.commence_time || null, homeML, awayML, homeRL, awayRL, flags, analysis, total, overOdds, underOdds, totalFlags, totalAnalysis, aiAnalysis: event.aiAnalysis || null, homeStreak: event.homeStreak || null, awayStreak: event.awayStreak || null, weather: event.weather || null, bookOdds: event.bookOdds || {}, pitchers: event.pitchers || null, altLines: event.altLines || null };
   });
 }
 
@@ -636,8 +636,11 @@ function calcMIS(g) {
 function buildTopPlays(games) {
   const candidates = [];
 
+  const now = new Date();
   for (const g of games) {
     if (!g || !g.home || !g.away) continue;
+    // Skip live/started games — can't bet them at listed prices
+    if (g.commenceTime && new Date(g.commenceTime) <= now) continue;
     // --- RUN LINE PLAYS ---
     if (g.flags.includes('RUN LINE VALUE')) {
       const edge = calcEdge(g);
