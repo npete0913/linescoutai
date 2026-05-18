@@ -244,7 +244,7 @@ Signals: ${g.signals.length > 0 ? g.signals.join("; ") : "No standout signals"}`
       await Promise.all(batches.map(async (batch) => {
         const prompt = `Today is ${todayLabel}. You are a sharp MLB betting analyst for Line Scout AI.
 
-For EACH game write 3-5 sentences. Reference actual odds, streaks, weather, AND the probable starting pitchers (use your knowledge of today's starters). Give one clear actionable take. Direct, sharp, no filler.
+For EACH game write 3-5 sentences. Reference the actual odds, streaks, and weather data provided. Give one clear actionable take. Be direct and sharp.
 
 ${batch.map(({ g, globalIdx }) => gameStr(g, globalIdx + 1)).join("\n\n")}
 
@@ -261,7 +261,7 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
             body: JSON.stringify({
               model: "claude-haiku-4-5",
               max_tokens: 4000,
-              system: "You are a sharp MLB betting analyst with access to current MLB data. When writing analysis, use your knowledge of today's probable starting pitchers. Output only a JSON object mapping game numbers (strings) to 3-5 sentence analysis. No markdown. Start with { end with }.",
+              system: "You are a sharp MLB betting analyst. You will receive real live betting odds data. Output only a JSON object mapping game numbers (strings) to 3-5 sentence analysis strings. NEVER refuse. ALWAYS analyze the provided data. No markdown. Start with { end with }.",
               messages: [{ role: "user", content: prompt }],
             }),
           });
@@ -296,23 +296,12 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
         g.away.split(" ").pop()
       ]))].join(", ");
 
-      // Use oddsData directly so we have raw commence_time for reliable filtering
-      const upcomingGames = oddsData
-        .filter(e => e.commence_time && new Date(e.commence_time) > nowUtc)
+      // Build game list for briefing — for tomorrow scans include all games, for today exclude live ones
+      const gamesForBriefing = gameSummaries
+        .filter(g => which === "tomorrow" || new Date(g.commenceTime || 0) > nowUtc)
         .slice(0, 8)
-        .map(e => {
-          const gs = gameSummaries.find(g => g.home === e.home_team);
-          if (!gs) return null;
-          return `${gs.away} @ ${gs.home} (${gs.time}): ML ${gs.homeML !== null ? (gs.homeML > 0 ? "+" : "") + gs.homeML : "N/A"} | RL ${gs.homeRL !== null ? (gs.homeRL > 0 ? "+" : "") + gs.homeRL : "N/A"} | O/U ${gs.total || "N/A"} ${gs.signals.length ? "| SIGNALS: " + gs.signals.join("; ") : ""}`;
-        })
-        .filter(Boolean)
-        .join("\n");
-
-      // If no upcoming games, use all games for briefing context
-      const gamesForBriefing = upcomingGames || gameSummaries
-        .slice(0, 6)
         .map(g => `${g.away} @ ${g.home} (${g.time}): ML ${g.homeML !== null ? (g.homeML > 0 ? "+" : "") + g.homeML : "N/A"} | RL ${g.homeRL !== null ? (g.homeRL > 0 ? "+" : "") + g.homeRL : "N/A"} | O/U ${g.total || "N/A"} ${g.signals.length ? "| SIGNALS: " + g.signals.join("; ") : ""}`)
-        .join("\n");
+        .join("\n") || gameSummaries.slice(0, 6).map(g => `${g.away} @ ${g.home} (${g.time}): ML ${g.homeML !== null ? (g.homeML > 0 ? "+" : "") + g.homeML : "N/A"}`).join("\n");
 
       const scanDay = which === "tomorrow" ? "tomorrow" : "today";
       const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI. These are ${scanDay}'s games.
@@ -341,7 +330,7 @@ Write a sharp briefing covering: the biggest value spot with specific odds, any 
           body: JSON.stringify({
             model: "claude-haiku-4-5",
             max_tokens: 500,
-            system: "You are a sharp MLB betting analyst. Be direct and specific.",
+            system: "You are a sharp MLB betting analyst for Line Scout AI. You will be given real betting odds data. NEVER refuse or say you lack access to data. ALWAYS write the briefing based on the numbers provided. The date in the prompt is correct.",
             messages: [{ role: "user", content: briefingPrompt }],
           }),
         }).catch(() => null),
