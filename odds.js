@@ -236,15 +236,15 @@ Run line: ${g.home} -1.5 @ ${g.homeRL !== null ? (g.homeRL > 0 ? "+" : "") + g.h
 Total: O/U ${g.total ?? "N/A"} | Over ${g.overOdds !== null ? (g.overOdds > 0 ? "+" : "") + g.overOdds : "N/A"} | Under ${g.underOdds !== null ? (g.underOdds > 0 ? "+" : "") + g.underOdds : "N/A"}
 ${g.home} streak: ${g.homeStreak.type ? g.homeStreak.type + g.homeStreak.streak : "unknown"} | Last 5: ${g.homeStreak.last5.join("-") || "N/A"}
 ${g.away} streak: ${g.awayStreak.type ? g.awayStreak.type + g.awayStreak.streak : "unknown"} | Last 5: ${g.awayStreak.last5.join("-") || "N/A"}
-Pitchers: Use your knowledge of today's probable starters for ${g.away} @ ${g.home}
+Pitchers: ${g.pitchers && g.pitchers.away !== "TBD" ? g.away.split(" ").pop() + ": " + g.pitchers.away + " vs " + g.home.split(" ").pop() + ": " + g.pitchers.home : "TBD"}
 Weather: ${g.weather ? (g.weather.isIndoor ? "Indoor stadium" : `${g.weather.temp}F, ${g.weather.windLabel}, ${g.weather.precip}% rain at ${g.weather.stadium}`) : "N/A"}
 Signals: ${g.signals.length > 0 ? g.signals.join("; ") : "No standout signals"}`;
 
       // Run batches in parallel
       await Promise.all(batches.map(async (batch) => {
-        const prompt = `Today is ${todayLabel}. You are a sharp MLB betting analyst for Line Scout AI.
+        const prompt = `You are a sharp MLB betting analyst for Line Scout AI. Analyze the following MLB betting data.
 
-For EACH game write 3-5 sentences. Reference the actual odds, streaks, and weather data provided. Give one clear actionable take. Be direct and sharp.
+For EACH game write 3-5 sentences analyzing the odds and signals provided. Give one clear actionable take. Be direct and sharp.
 
 ${batch.map(({ g, globalIdx }) => gameStr(g, globalIdx + 1)).join("\n\n")}
 
