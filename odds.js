@@ -315,9 +315,9 @@ Write a sharp 3-4 sentence briefing analyzing this data. Cover: the biggest valu
           method: "POST",
           headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
           body: JSON.stringify({
-            model: "claude-haiku-4-5",
+            model: "claude-sonnet-4-5",
             max_tokens: 500,
-            system: "You are a sharp MLB betting analyst. Analyze the betting odds data provided. NEVER refuse. ALWAYS write the briefing based on the numbers given.",
+            system: "You are a sharp MLB betting analyst at Line Scout AI. The user is providing live betting odds from sportsbooks. Your job is to analyze ONLY these numbers and write a sharp briefing. Do NOT mention dates, training cutoffs, or what you can/cannot access. Just analyze the odds.",
             messages: [{ role: "user", content: briefingPrompt }],
           }),
         }).catch(() => null),
