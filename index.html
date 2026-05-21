@@ -158,6 +158,7 @@
   .tab.active-rl  { background: rgba(0,255,135,0.07);  border-color: rgba(0,255,135,0.3);  color: var(--green); }
   .tab.active-tot { background: rgba(0,212,255,0.07);  border-color: rgba(0,212,255,0.3);  color: var(--cyan); }
   .tab.active-top { background: rgba(255,183,0,0.07); border-color: rgba(255,183,0,0.3); color: var(--amber); }
+  .tab.active-learn { background: rgba(236,72,153,0.07); border-color: rgba(236,72,153,0.3); color: #ec4899; }
   .tab-count { font-family: 'DM Mono', monospace; font-size: 10px; margin-left: 5px; }
 
   /* ── FILTERS ── */
@@ -368,6 +369,7 @@
       📊 TOTAL RUN LINE <span class="tab-count" id="tabTotCount"></span>
     </button>
     <button class="tab" id="tabTop" onclick="setTab('TOP')">🎯 TOP PLAYS <span class="tab-count" id="tabTopCount"></span></button>
+    <button class="tab" id="tabLearn" onclick="setTab('LEARN')">📊 LEARN <span class="tab-count" id="tabLearnCount"></span></button>
   </div>
 
   <!-- FILTERS -->
@@ -461,6 +463,16 @@ async function scan(which) {
     }
     // Grade yesterday's picks
     fetch('/api/record', { method: 'PUT' }).catch(() => {});
+
+    // Save scan snapshot for learning + grade yesterday's signals
+    if (which === 'today') {
+      fetch('/.netlify/functions/learn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ games: allGames })
+      }).catch(() => {});
+    }
+    fetch('/.netlify/functions/learn', { method: 'PUT' }).catch(() => {});
     // Load record
     fetch('/api/record').then(r => r.json()).then(data => {
       pickRecord = data.record;
@@ -760,7 +772,86 @@ function setTab(t) {
   document.getElementById('tabRL').className  = 'tab'+(t==='RL'  ? ' active-rl'  : '');
   document.getElementById('tabTot').className = 'tab'+(t==='TOT' ? ' active-tot' : '');
   document.getElementById('tabTop').className = 'tab'+(t==='TOP' ? ' active-top' : '');
+  document.getElementById('tabLearn').className = 'tab'+(t==='LEARN' ? ' active-learn' : '');
+  if (t === 'LEARN') { loadLearnTab(); document.getElementById('filtersRow').style.display='none'; return; }
   renderFilters(); renderCards();
+}
+
+async function loadLearnTab() {
+  const c = document.getElementById('cardsContainer');
+  c.innerHTML = '<div style="text-align:center;padding:60px;color:#3a4060;font-family:monospace;font-size:11px">Loading signal accuracy...</div>';
+  try {
+    const res = await fetch('/.netlify/functions/learn');
+    if (!res.ok) throw new Error('Failed to load');
+    const data = await res.json();
+    renderLearnTab(data);
+  } catch (e) {
+    c.innerHTML = '<div style="text-align:center;padding:40px;color:#ff4757;font-family:monospace;font-size:11px">Could not load learning data: ' + e.message + '</div>';
+  }
+}
+
+function renderLearnTab(data) {
+  const c = document.getElementById('cardsContainer');
+  const stats = data.signalStats || [];
+  const games = data.recentGraded || [];
+
+  if (stats.length === 0) {
+    c.innerHTML = `<div style="padding:60px 40px;text-align:center;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:36px;color:#fff;margin-bottom:14px;letter-spacing:0.02em">📊 LEARN MODE</div>
+      <div style="font-family:monospace;font-size:12px;color:#5a6570;line-height:1.7;max-width:520px;margin:0 auto">
+        Once Line Scout has scanned and graded a day of games, this tab will show you which signals are actually winning bets vs which are noise.<br><br>
+        Each signal will track its hit rate over time. Confidence scores will adjust based on what's working.<br><br>
+        <span style="color:#00ff87">Run today's scan</span> and check back tomorrow morning.
+      </div>
+    </div>`;
+    return;
+  }
+
+  c.innerHTML = `
+    <div style="margin-bottom:20px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:#fff;letter-spacing:0.03em">SIGNAL ACCURACY</div>
+      <div style="font-family:monospace;font-size:10px;color:#5a6570;margin-top:4px">Historical hit rate per signal · Trend shows last 30 games</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:30px">
+      ${stats.map(s => {
+        const rate = parseFloat(s.hitRate);
+        const recent = parseFloat(s.recent30HitRate);
+        const color = rate >= 55 ? '#00ff87' : rate >= 45 ? '#ffb700' : '#ff4757';
+        const trend = recent > rate ? '↑' : recent < rate ? '↓' : '→';
+        const trendColor = recent > rate ? '#00ff87' : recent < rate ? '#ff4757' : '#888';
+        return `<div style="padding:14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px">
+          <div style="font-family:monospace;font-size:9px;color:#5a6570;letter-spacing:0.1em;margin-bottom:8px">${s.signal}</div>
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">
+            <span style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:${color};line-height:1">${s.hitRate}%</span>
+            <span style="font-family:monospace;font-size:11px;color:#6a7580">${s.wins}W-${s.losses}L</span>
+          </div>
+          <div style="font-family:monospace;font-size:10px;color:#5a6570">
+            Last ${s.recent30Count}: <span style="color:${trendColor}">${s.recent30HitRate}% ${trend}</span>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    ${games.length > 0 ? `
+    <div style="margin-bottom:14px">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:#fff;letter-spacing:0.03em">RECENT GRADED GAMES</div>
+      <div style="font-family:monospace;font-size:10px;color:#5a6570;margin-top:4px">Last 7 days · Signal performance per game</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${games.slice(0, 20).map(g => `<div style="padding:10px 14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:5px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+        <div>
+          <div style="font-family:monospace;font-size:11px;color:#8a95a0">${g.away} @ ${g.home}</div>
+          <div style="font-family:monospace;font-size:9px;color:#3a4550;margin-top:2px">${g.date} · Final: ${g.finalScore} · Total: ${g.totalRuns}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${Object.entries(g.signalResults || {}).map(([sig, hit]) =>
+            `<span style="font-family:monospace;font-size:9px;padding:3px 8px;border-radius:3px;background:${hit ? 'rgba(0,255,135,0.1)' : 'rgba(255,71,87,0.1)'};color:${hit ? '#00ff87' : '#ff4757'};border:1px solid ${hit ? 'rgba(0,255,135,0.2)' : 'rgba(255,71,87,0.2)'}">${sig} ${hit ? '✓' : '✗'}</span>`
+          ).join('')}
+        </div>
+      </div>`).join('')}
+    </div>
+    ` : ''}
+  `;
 }
 
 function renderFilters() {
