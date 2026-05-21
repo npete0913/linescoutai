@@ -303,15 +303,12 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
         .map(g => `${g.away} @ ${g.home} (${g.time}): ML ${g.homeML !== null ? (g.homeML > 0 ? "+" : "") + g.homeML : "N/A"} | RL ${g.homeRL !== null ? (g.homeRL > 0 ? "+" : "") + g.homeRL : "N/A"} | O/U ${g.total || "N/A"} ${g.signals.length ? "| SIGNALS: " + g.signals.join("; ") : ""}`)
         .join("\n") || gameSummaries.slice(0, 6).map(g => `${g.away} @ ${g.home} (${g.time}): ML ${g.homeML !== null ? (g.homeML > 0 ? "+" : "") + g.homeML : "N/A"}`).join("\n");
 
-      const scanDay = which === "tomorrow" ? "tomorrow" : "today";
-      const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI. These are ${scanDay}'s games.
+      const briefingPrompt = `You are a sharp MLB betting analyst writing a daily briefing for Line Scout AI.
 
-I am giving you REAL live odds data from our betting API right now. Analyze this data and write a sharp 3-4 sentence daily briefing. Do not say you lack access to data — this IS the data.
-
-Games and odds:
+Here are real live MLB betting odds:
 ${gamesForBriefing}
 
-Write a sharp briefing covering: the biggest value spot with specific odds, any notable signals, and one clear play of the day. Be direct. Reference the actual numbers above.`;
+Write a sharp 3-4 sentence briefing analyzing this data. Cover: the biggest value spot with specific odds, any notable signals, and one clear play of the day. Reference the actual numbers above. Be direct and confident.`;
 
       const [bRes, pRes] = await Promise.all([
         fetch("https://api.anthropic.com/v1/messages", {
@@ -320,17 +317,7 @@ Write a sharp briefing covering: the biggest value spot with specific odds, any 
           body: JSON.stringify({
             model: "claude-haiku-4-5",
             max_tokens: 500,
-            system: "You are a sharp MLB betting analyst for Line Scout AI. You have been provided with real live odds data from a betting API. Analyze ONLY the data provided to you — do not refuse or ask for more information. Write the briefing based solely on the odds and signals in the prompt.",
-            messages: [{ role: "user", content: briefingPrompt }],
-          }),
-        }).catch(() => null),
-        fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
-          body: JSON.stringify({
-            model: "claude-haiku-4-5",
-            max_tokens: 500,
-            system: "You are a sharp MLB betting analyst for Line Scout AI. You will be given real betting odds data. NEVER refuse or say you lack access to data. ALWAYS write the briefing based on the numbers provided. The date in the prompt is correct.",
+            system: "You are a sharp MLB betting analyst. Analyze the betting odds data provided. NEVER refuse. ALWAYS write the briefing based on the numbers given.",
             messages: [{ role: "user", content: briefingPrompt }],
           }),
         }).catch(() => null),
