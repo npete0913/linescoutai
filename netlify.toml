@@ -5,3 +5,7 @@
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
+
+# Scheduled function runs daily at 1 PM UTC (9 AM ET / 8 AM CT)
+[functions."scheduled-scan"]
+  schedule = "0 13 * * *"

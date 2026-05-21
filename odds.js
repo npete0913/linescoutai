@@ -35,6 +35,18 @@ const BALLPARKS = {
 };
 
 // Wind direction helper — returns "out", "in", "cross", or "calm"
+// SportsDataIO team abbreviation → Odds API team name last-word
+const SDIO_TEAM_MAP = {
+  "ARI": "diamondbacks", "ATL": "braves", "BAL": "orioles", "BOS": "sox",
+  "CHC": "cubs", "CHW": "sox", "CIN": "reds", "CLE": "guardians",
+  "COL": "rockies", "DET": "tigers", "HOU": "astros", "KC": "royals",
+  "LAA": "angels", "LAD": "dodgers", "MIA": "marlins", "MIL": "brewers",
+  "MIN": "twins", "NYM": "mets", "NYY": "yankees", "OAK": "athletics",
+  "PHI": "phillies", "PIT": "pirates", "SD": "padres", "SEA": "mariners",
+  "SF": "giants", "STL": "cardinals", "TB": "rays", "TEX": "rangers",
+  "TOR": "jays", "WSH": "nationals"
+};
+
 function getWindEffect(windDeg, windSpeed, centerBearing) {
   if (windSpeed < 5) return { effect: "calm", label: "Calm" };
   // Angle between wind direction and center bearing
@@ -321,20 +333,22 @@ Write a sharp 3-4 sentence briefing analyzing this data. Cover: the biggest valu
             messages: [{ role: "user", content: briefingPrompt }],
           }),
         }).catch(() => null),
-        // Try multiple pitcher sources
+        // SportsDataIO MLB API for accurate pitchers + schedule
         (async () => {
-          const sources = [
-            `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${dateStr}&hydrate=probablePitcher`,
-            `https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates=${dateStr.replace(/-/g,"")}`,
-            `https://bdfed.stitch.mlbinfra.com/bdfed/stats/game?stitch_env=prod&season=${dateStr.substring(0,4)}&sportId=1&gameType=R&limit=50&offset=0&sortStat=battingAverage&order=desc`,
-          ];
-          for (const url of sources) {
+          const SDIO_KEY = process.env.SPORTSDATAIO_KEY;
+          if (SDIO_KEY) {
             try {
-              const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" } });
+              const sdioUrl = `https://api.sportsdata.io/v3/mlb/scores/json/GamesByDate/${dateStr}?key=${SDIO_KEY}`;
+              const r = await fetch(sdioUrl);
               if (r.ok) return r;
             } catch (_) {}
           }
-          return null;
+          // Fallback to MLB Stats API
+          try {
+            return await fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${dateStr}&hydrate=probablePitcher`, {
+              headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" }
+            });
+          } catch (_) { return null; }
         })(),
       ]);
 
