@@ -103,8 +103,37 @@ exports.handler = async (event) => {
     const scoresData = scoresRes.ok ? await scoresRes.json() : [];
 
     const pitcherByTeam = {};
-    const pitcherMap2 = {}; // filled after briefing call
+    const pitcherMap2 = {};
 
+    // Fetch pitchers from SportsDataIO BEFORE building game summaries
+    const SDIO_KEY = process.env.SPORTSDATAIO_KEY;
+    if (SDIO_KEY) {
+      try {
+        const dateForApi = which === "tomorrow"
+          ? new Date(Date.now() + 86400000).toISOString().split("T")[0]
+          : new Date().toISOString().split("T")[0];
+        const sdioUrl = `https://api.sportsdata.io/v3/mlb/scores/json/GamesByDate/${dateForApi}?key=${SDIO_KEY}`;
+        const sdioRes = await fetch(sdioUrl);
+        if (sdioRes.ok) {
+          const sdioData = await sdioRes.json();
+          if (Array.isArray(sdioData)) {
+            for (const game of sdioData) {
+              const homeAbbr = (game.HomeTeam || "").toUpperCase();
+              const awayAbbr = (game.AwayTeam || "").toUpperCase();
+              const homeKey = SDIO_TEAM_MAP[homeAbbr];
+              const awayKey = SDIO_TEAM_MAP[awayAbbr];
+              const homePitcher = game.HomeTeamProbablePitcher;
+              const awayPitcher = game.AwayTeamProbablePitcher;
+              if (homeKey && homePitcher) pitcherByTeam[homeKey] = homePitcher;
+              if (awayKey && awayPitcher) pitcherByTeam[awayKey] = awayPitcher;
+            }
+            console.log(`SportsDataIO: loaded ${Object.keys(pitcherByTeam).length} pitchers`);
+          }
+        }
+      } catch (e) {
+        console.log("SportsDataIO error:", e.message);
+      }
+    }
 
     // Helper to get pitcher for a game
     const getPitchers = (home, away) => {
@@ -315,41 +344,26 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
         .map(g => `${g.away} @ ${g.home} (${g.time}): ML ${g.homeML !== null ? (g.homeML > 0 ? "+" : "") + g.homeML : "N/A"} | RL ${g.homeRL !== null ? (g.homeRL > 0 ? "+" : "") + g.homeRL : "N/A"} | O/U ${g.total || "N/A"} ${g.signals.length ? "| SIGNALS: " + g.signals.join("; ") : ""}`)
         .join("\n") || gameSummaries.slice(0, 6).map(g => `${g.away} @ ${g.home} (${g.time}): ML ${g.homeML !== null ? (g.homeML > 0 ? "+" : "") + g.homeML : "N/A"}`).join("\n");
 
-      const briefingPrompt = `You are a sharp MLB betting analyst writing a daily briefing for Line Scout AI.
+      const briefingPrompt = `You are a sharp MLB betting analyst for Line Scout AI. Analyze the following MLB betting data.
 
-Here are real live MLB betting odds:
 ${gamesForBriefing}
 
-Write a sharp 3-4 sentence briefing analyzing this data. Cover: the biggest value spot with specific odds, any notable signals, and one clear play of the day. Reference the actual numbers above. Be direct and confident.`;
+Based on the data above, write a sharp 3-4 sentence daily briefing covering: the biggest value spot with specific odds, any notable signals, and one clear play of the day. Reference actual numbers from the data above. Be direct.
+
+Respond with ONLY the briefing text. No preamble. No disclaimers. No mention of dates or your knowledge.`;
 
       const [bRes, pRes] = await Promise.all([
         fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
           body: JSON.stringify({
-            model: "claude-sonnet-4-5",
+            model: "claude-haiku-4-5",
             max_tokens: 500,
-            system: "You are a sharp MLB betting analyst at Line Scout AI. The user is providing live betting odds from sportsbooks. Your job is to analyze ONLY these numbers and write a sharp briefing. Do NOT mention dates, training cutoffs, or what you can/cannot access. Just analyze the odds.",
+            system: "You are a sharp MLB betting analyst. You will receive real live betting odds data. Output the briefing text directly. NEVER refuse. NEVER mention dates or training data. ALWAYS analyze the provided data.",
             messages: [{ role: "user", content: briefingPrompt }],
           }),
         }).catch(() => null),
-        // SportsDataIO MLB API for accurate pitchers + schedule
-        (async () => {
-          const SDIO_KEY = process.env.SPORTSDATAIO_KEY;
-          if (SDIO_KEY) {
-            try {
-              const sdioUrl = `https://api.sportsdata.io/v3/mlb/scores/json/GamesByDate/${dateStr}?key=${SDIO_KEY}`;
-              const r = await fetch(sdioUrl);
-              if (r.ok) return r;
-            } catch (_) {}
-          }
-          // Fallback to MLB Stats API
-          try {
-            return await fetch(`https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${dateStr}&hydrate=probablePitcher`, {
-              headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" }
-            });
-          } catch (_) { return null; }
-        })(),
+Promise.resolve(null), // Pitchers already fetched above
       ]);
 
       // Parse briefing
