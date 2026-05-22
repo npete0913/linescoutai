@@ -5,10 +5,23 @@ const { getStore } = require("@netlify/blobs");
 
 exports.handler = async (event) => {
   const API_KEY = process.env.ODDS_API_KEY;
-  if (!API_KEY) return { statusCode: 500, body: JSON.stringify({ error: "Odds API key not configured" }) };
-
   const method = event.httpMethod;
-  const store = getStore({ name: "linescoutai", consistency: "strong" });
+
+  let store;
+  try {
+    store = getStore({ name: "linescoutai", consistency: "strong" });
+  } catch (err) {
+    // Return empty state if Blobs unavailable
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ signalStats: [], recentGraded: [], message: "Storage unavailable" }),
+    };
+  }
+
+  if (!API_KEY && method === "PUT") {
+    return { statusCode: 500, body: JSON.stringify({ error: "Odds API key not configured" }) };
+  }
 
   // ──────────────────────────────────────────────────────────────────────────
   // POST: Save today's scan snapshot for future grading

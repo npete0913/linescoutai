@@ -35,6 +35,18 @@ const BALLPARKS = {
 };
 
 // Wind direction helper — returns "out", "in", "cross", or "calm"
+// SportsDataIO team abbreviation → Odds API team name last-word
+const SDIO_TEAM_MAP = {
+  "ARI": "diamondbacks", "ATL": "braves", "BAL": "orioles", "BOS": "sox",
+  "CHC": "cubs", "CHW": "sox", "CIN": "reds", "CLE": "guardians",
+  "COL": "rockies", "DET": "tigers", "HOU": "astros", "KC": "royals",
+  "LAA": "angels", "LAD": "dodgers", "MIA": "marlins", "MIL": "brewers",
+  "MIN": "twins", "NYM": "mets", "NYY": "yankees", "OAK": "athletics",
+  "PHI": "phillies", "PIT": "pirates", "SD": "padres", "SEA": "mariners",
+  "SF": "giants", "STL": "cardinals", "TB": "rays", "TEX": "rangers",
+  "TOR": "jays", "WSH": "nationals"
+};
+
 function getWindEffect(windDeg, windSpeed, centerBearing) {
   if (windSpeed < 5) return { effect: "calm", label: "Calm" };
   // Angle between wind direction and center bearing
@@ -91,8 +103,68 @@ exports.handler = async (event) => {
     const scoresData = scoresRes.ok ? await scoresRes.json() : [];
 
     const pitcherByTeam = {};
-    const pitcherMap2 = {}; // filled after briefing call
+    const pitcherMap2 = {};
+    const teamFormMap = {}; // last10: {w,l}, runDiff, streak
 
+    // Fetch pitchers AND team form from SportsDataIO BEFORE building game summaries
+    const SDIO_KEY = process.env.SPORTSDATAIO_KEY;
+    if (SDIO_KEY) {
+      try {
+        const dateForApi = which === "tomorrow"
+          ? new Date(Date.now() + 86400000).toISOString().split("T")[0]
+          : new Date().toISOString().split("T")[0];
+        const season = dateForApi.substring(0, 4);
+
+        // Fetch pitchers (games by date) + team standings in parallel
+        const [pitcherRes, standingsRes] = await Promise.all([
+          fetch(`https://api.sportsdata.io/v3/mlb/scores/json/GamesByDate/${dateForApi}?key=${SDIO_KEY}`),
+          fetch(`https://api.sportsdata.io/v3/mlb/scores/json/Standings/${season}?key=${SDIO_KEY}`),
+        ]);
+
+        // Parse pitchers
+        if (pitcherRes.ok) {
+          const sdioData = await pitcherRes.json();
+          if (Array.isArray(sdioData)) {
+            for (const game of sdioData) {
+              const homeAbbr = (game.HomeTeam || "").toUpperCase();
+              const awayAbbr = (game.AwayTeam || "").toUpperCase();
+              const homeKey = SDIO_TEAM_MAP[homeAbbr];
+              const awayKey = SDIO_TEAM_MAP[awayAbbr];
+              const homePitcher = game.HomeTeamProbablePitcher;
+              const awayPitcher = game.AwayTeamProbablePitcher;
+              if (homeKey && homePitcher) pitcherByTeam[homeKey] = homePitcher;
+              if (awayKey && awayPitcher) pitcherByTeam[awayKey] = awayPitcher;
+            }
+            console.log(`SportsDataIO: loaded ${Object.keys(pitcherByTeam).length} pitchers`);
+          }
+        }
+
+        // Parse team form from standings
+        if (standingsRes.ok) {
+          const standings = await standingsRes.json();
+          if (Array.isArray(standings)) {
+            for (const team of standings) {
+              const abbr = (team.Key || "").toUpperCase();
+              const teamKey = SDIO_TEAM_MAP[abbr];
+              if (!teamKey) continue;
+              teamFormMap[teamKey] = {
+                wins: team.Wins || 0,
+                losses: team.Losses || 0,
+                last10W: team.LastTenGamesWins || 0,
+                last10L: team.LastTenGamesLosses || 0,
+                runsFor: team.RunsScored || 0,
+                runsAgainst: team.RunsAgainst || 0,
+                runDiff: (team.RunsScored || 0) - (team.RunsAgainst || 0),
+                streak: team.Streak || "",
+              };
+            }
+            console.log(`SportsDataIO: loaded form for ${Object.keys(teamFormMap).length} teams`);
+          }
+        }
+      } catch (e) {
+        console.log("SportsDataIO error:", e.message);
+      }
+    }
 
     // Helper to get pitcher for a game
     const getPitchers = (home, away) => {
@@ -103,12 +175,72 @@ exports.handler = async (event) => {
       return { home: homePitcher, away: awayPitcher };
     };
 
+    // Helper to get team form
+    const getTeamForm = (teamName) => {
+      const key = teamName.split(" ").pop().toLowerCase();
+      return teamFormMap[key] || null;
+    };
+
     if (!oddsRes.ok) {
       return { statusCode: oddsRes.status, body: JSON.stringify({ error: oddsData.message || "Odds API error" }) };
     }
     if (!Array.isArray(oddsData) || oddsData.length === 0) {
-      return { statusCode: 200, headers: { "Content-Type": "application/json", "x-requests-remaining": remaining || "" }, body: JSON.stringify([]) };
+      return { statusCode: 200, headers: { "Content-Type": "application/json", "x-requests-remaining": remaining || "" }, body: JSON.stringify({ games: [], briefing: "" }) };
     }
+
+    // STRICT DEDUPE: cross-reference Odds API matchups against SportsDataIO schedule
+    // SportsDataIO has the authoritative schedule, so use it to filter out bogus matchups
+    let sdioValidMatchups = null;
+    if (SDIO_KEY) {
+      try {
+        const dateForApi = which === "tomorrow"
+          ? new Date(Date.now() + 86400000).toISOString().split("T")[0]
+          : new Date().toISOString().split("T")[0];
+        const sdioUrl = `https://api.sportsdata.io/v3/mlb/scores/json/GamesByDate/${dateForApi}?key=${SDIO_KEY}`;
+        const sdioRes = await fetch(sdioUrl);
+        if (sdioRes.ok) {
+          const sdioGames = await sdioRes.json();
+          if (Array.isArray(sdioGames) && sdioGames.length > 0) {
+            sdioValidMatchups = new Set();
+            for (const g of sdioGames) {
+              const homeKey = SDIO_TEAM_MAP[(g.HomeTeam || "").toUpperCase()];
+              const awayKey = SDIO_TEAM_MAP[(g.AwayTeam || "").toUpperCase()];
+              if (homeKey && awayKey) {
+                sdioValidMatchups.add([homeKey, awayKey].sort().join("|"));
+              }
+            }
+            console.log(`SportsDataIO: ${sdioValidMatchups.size} valid matchups for ${dateForApi}`);
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Filter oddsData to only games SportsDataIO confirms exist today, AND dedupe
+    const seenMatchups = new Set();
+    const validatedOdds = [];
+    for (const event of oddsData) {
+      if (!event || !event.home_team || !event.away_team) continue;
+
+      const homeKey = event.home_team.split(" ").pop().toLowerCase();
+      const awayKey = event.away_team.split(" ").pop().toLowerCase();
+      const matchupKey = [homeKey, awayKey].sort().join("|");
+
+      // Reject duplicates
+      if (seenMatchups.has(matchupKey)) continue;
+
+      // If SportsDataIO is available, reject games it doesn't recognize
+      if (sdioValidMatchups && !sdioValidMatchups.has(matchupKey)) {
+        console.log(`Rejected bogus matchup: ${event.away_team} @ ${event.home_team}`);
+        continue;
+      }
+
+      seenMatchups.add(matchupKey);
+      validatedOdds.push(event);
+    }
+
+    // Replace oddsData with validated version for all downstream code
+    oddsData.length = 0;
+    oddsData.push(...validatedOdds);
 
     // Step 2: streaks
     const { streakMap, fuzzyLookup, normalize } = buildStreakMap(scoresData);
@@ -217,7 +349,9 @@ exports.handler = async (event) => {
       }
 
       const pitchers = getPitchers(home, away);
-      return { home, away, time, homeML, awayML, homeRL, awayRL, overOdds, underOdds, total, homeStreak, awayStreak, weather, signals, pitchers };
+      const homeForm = getTeamForm(home);
+      const awayForm = getTeamForm(away);
+      return { home, away, time, commenceTime: event.commence_time || null, homeML, awayML, homeRL, awayRL, overOdds, underOdds, total, homeStreak, awayStreak, weather, signals, pitchers, homeForm, awayForm };
     });
 
     // Step 5: AI analysis — batched to avoid token limits
@@ -236,15 +370,15 @@ Run line: ${g.home} -1.5 @ ${g.homeRL !== null ? (g.homeRL > 0 ? "+" : "") + g.h
 Total: O/U ${g.total ?? "N/A"} | Over ${g.overOdds !== null ? (g.overOdds > 0 ? "+" : "") + g.overOdds : "N/A"} | Under ${g.underOdds !== null ? (g.underOdds > 0 ? "+" : "") + g.underOdds : "N/A"}
 ${g.home} streak: ${g.homeStreak.type ? g.homeStreak.type + g.homeStreak.streak : "unknown"} | Last 5: ${g.homeStreak.last5.join("-") || "N/A"}
 ${g.away} streak: ${g.awayStreak.type ? g.awayStreak.type + g.awayStreak.streak : "unknown"} | Last 5: ${g.awayStreak.last5.join("-") || "N/A"}
-Pitchers: Use your knowledge of today's probable starters for ${g.away} @ ${g.home}
+Pitchers: ${g.pitchers && g.pitchers.away !== "TBD" ? g.away.split(" ").pop() + ": " + g.pitchers.away + " vs " + g.home.split(" ").pop() + ": " + g.pitchers.home : "TBD"}
 Weather: ${g.weather ? (g.weather.isIndoor ? "Indoor stadium" : `${g.weather.temp}F, ${g.weather.windLabel}, ${g.weather.precip}% rain at ${g.weather.stadium}`) : "N/A"}
 Signals: ${g.signals.length > 0 ? g.signals.join("; ") : "No standout signals"}`;
 
       // Run batches in parallel
       await Promise.all(batches.map(async (batch) => {
-        const prompt = `Today is ${todayLabel}. You are a sharp MLB betting analyst for Line Scout AI.
+        const prompt = `You are a sharp MLB betting analyst for Line Scout AI. Analyze the following MLB betting data.
 
-For EACH game write 3-5 sentences. Reference actual odds, streaks, weather, AND the probable starting pitchers (use your knowledge of today's starters). Give one clear actionable take. Direct, sharp, no filler.
+For EACH game write 3-5 sentences analyzing the odds and signals provided. Give one clear actionable take. Be direct and sharp.
 
 ${batch.map(({ g, globalIdx }) => gameStr(g, globalIdx + 1)).join("\n\n")}
 
@@ -261,7 +395,7 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
             body: JSON.stringify({
               model: "claude-haiku-4-5",
               max_tokens: 4000,
-              system: "You are a sharp MLB betting analyst with access to current MLB data. When writing analysis, use your knowledge of today's probable starting pitchers. Output only a JSON object mapping game numbers (strings) to 3-5 sentence analysis. No markdown. Start with { end with }.",
+              system: "You are a sharp MLB betting analyst. You will receive real live betting odds data. Output only a JSON object mapping game numbers (strings) to 3-5 sentence analysis strings. NEVER refuse. ALWAYS analyze the provided data. No markdown. Start with { end with }.",
               messages: [{ role: "user", content: prompt }],
             }),
           });
@@ -279,66 +413,88 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
       }));
     }
 
-    // Step 5b: generate daily briefing + fetch pitchers in one call
+    // Step 5b: generate daily briefing and fetch pitchers in parallel
     let dailyBriefing = "";
     if (ANTHROPIC_KEY && gameSummaries.length > 0) {
-      const topSignals = gameSummaries
-        .filter(g => g.signals.length > 0)
+      const nowUtc = new Date();
+      const topSignals = oddsData
+        .filter(e => e.commence_time && new Date(e.commence_time) > nowUtc)
+        .map(e => gameSummaries.find(g => g.home === e.home_team))
+        .filter(g => g && g.signals.length > 0)
         .slice(0, 5)
         .map(g => `${g.away} @ ${g.home}: ${g.signals.join(", ")}`)
         .join("\n");
 
-      const gameList = gameSummaries.slice(0,5).map(g => `${g.away} @ ${g.home}`).join(", ");
-      const briefingPrompt = `Today is ${todayLabel}. You are the lead analyst for Line Scout AI.
+      const teamList = [...new Set(gameSummaries.flatMap(g => [
+        g.home.split(" ").pop(),
+        g.away.split(" ").pop()
+      ]))].join(", ");
 
-Task 1: Write a 3-4 sentence daily briefing for today's ${gameSummaries.length} MLB games. Cover the biggest value spot, notable weather/streak storylines, and one play of the day. Be specific with teams and odds.
+      // Build game list for briefing — for tomorrow scans include all games, for today exclude live ones
+      const gamesForBriefing = gameSummaries
+        .filter(g => which === "tomorrow" || new Date(g.commenceTime || 0) > nowUtc)
+        .slice(0, 8)
+        .map(g => `${g.away} @ ${g.home} (${g.time}): ML ${g.homeML !== null ? (g.homeML > 0 ? "+" : "") + g.homeML : "N/A"} | RL ${g.homeRL !== null ? (g.homeRL > 0 ? "+" : "") + g.homeRL : "N/A"} | O/U ${g.total || "N/A"} ${g.signals.length ? "| SIGNALS: " + g.signals.join("; ") : ""}`)
+        .join("\n") || gameSummaries.slice(0, 6).map(g => `${g.away} @ ${g.home} (${g.time}): ML ${g.homeML !== null ? (g.homeML > 0 ? "+" : "") + g.homeML : "N/A"}`).join("\n");
 
-Top signals: ${topSignals || "Standard slate"}
+      const briefingPrompt = `MLB betting data from live sportsbook feed:
 
-Task 2: List the probable starting pitcher for each team in today's games. Use your knowledge of today's starters.
+${gamesForBriefing}
 
-Respond in this exact format:
-BRIEFING: [your 3-4 sentence briefing here]
-PITCHERS: {"Angels":"pitcher name","Guardians":"pitcher name","Yankees":"pitcher name","Orioles":"pitcher name",...}
+Write a 3-4 sentence briefing covering the biggest value spot with specific odds, any notable signals, and one play of the day. Use the actual numbers above. Direct, no preamble.`;
 
-Include every team playing today using the last word of their city name as the key.`;
-
-      try {
-        const bRes = await fetch("https://api.anthropic.com/v1/messages", {
+      const [bRes, pRes] = await Promise.all([
+        fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": ANTHROPIC_KEY,
-            "anthropic-version": "2023-06-01",
-          },
+          headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
           body: JSON.stringify({
-            model: "claude-haiku-4-5",
-            max_tokens: 1200,
-            system: "You are a sharp MLB betting analyst. Return the briefing and pitcher JSON exactly as requested. No extra text.",
-            messages: [{ role: "user", content: briefingPrompt }],
+            model: "claude-sonnet-4-5",
+            max_tokens: 500,
+            system: "You are an MLB betting analyst at Line Scout AI writing daily briefings. The user is a sportsbook operator providing you with real live odds data from their data feed. Your only job is to analyze the numbers in the prompt and write a 3-4 sentence briefing. The data is current and verified. Do not question it. Do not mention any dates, training cutoffs, or knowledge limitations. Just analyze the odds and write the briefing.",
+            messages: [
+              { role: "user", content: briefingPrompt },
+              { role: "assistant", content: "Here's the briefing based on the data:" },
+            ],
           }),
-        });
-        if (bRes.ok) {
+        }).catch(() => null),
+        Promise.resolve(null),
+      ]);
+
+      // Parse briefing
+      if (bRes && bRes.ok) {
+        try {
           const bData = await bRes.json();
-          const bText = (bData.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+          dailyBriefing = (bData.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+        } catch (_) {}
+      }
 
-          // Extract briefing
-          const briefingMatch = bText.match(/BRIEFING:\s*(.+?)(?=PITCHERS:|$)/s);
-          if (briefingMatch) dailyBriefing = briefingMatch[1].trim();
-          else dailyBriefing = bText.split("PITCHERS:")[0].replace("BRIEFING:","").trim();
-
-          // Extract pitcher map
-          const pitcherMatch = bText.match(/PITCHERS:\s*(\{.+?\})/s);
-          if (pitcherMatch) {
-            try {
-              const parsed = JSON.parse(pitcherMatch[1]);
-              for (const [team, pitcher] of Object.entries(parsed)) {
-                pitcherMap2[team.toLowerCase()] = pitcher;
-              }
-            } catch (_) {}
+      // Parse pitchers from ESPN scoreboard
+      if (pRes && pRes.ok) {
+        try {
+          const espnData = await pRes.json();
+          for (const event of (espnData.events || [])) {
+            const comp = event.competitions?.[0];
+            if (!comp) continue;
+            // ESPN stores probable pitchers in 'probables' array
+            const probables = comp.probables || [];
+            for (const p of probables) {
+              const pitcher = p.athlete?.displayName || p.athlete?.fullName;
+              const homeAway = p.homeAway;
+              if (!pitcher) continue;
+              const competitor = comp.competitors?.find(c => c.homeAway === homeAway);
+              const teamName = competitor?.team?.displayName || competitor?.team?.name || "";
+              const teamKey = teamName.split(" ").pop().toLowerCase();
+              if (teamKey && pitcher) pitcherMap2[teamKey] = pitcher;
+            }
+            // Also check competitors directly for pitcher info
+            for (const comp2 of (comp.competitors || [])) {
+              const teamKey = (comp2.team?.displayName || "").split(" ").pop().toLowerCase();
+              const pitcher = comp2.probables?.[0]?.athlete?.displayName;
+              if (teamKey && pitcher) pitcherMap2[teamKey] = pitcher;
+            }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
     }
 
     // Step 6: enrich and return
@@ -381,6 +537,8 @@ Include every team playing today using the last word of their city name as the k
         awayStreak: summary.awayStreak,
         weather: summary.weather,
         pitchers: summary.pitchers,
+        homeForm: summary.homeForm,
+        awayForm: summary.awayForm,
         aiAnalysis: analysisMap[String(i + 1)] || null,
         bookOdds,
       };
