@@ -451,10 +451,7 @@ Write a 3-4 sentence briefing covering the biggest value spot with specific odds
             model: "claude-sonnet-4-5",
             max_tokens: 500,
             system: "You are an MLB betting analyst at Line Scout AI writing daily briefings. The user is a sportsbook operator providing you with real live odds data from their data feed. Your only job is to analyze the numbers in the prompt and write a 3-4 sentence briefing. The data is current and verified. Do not question it. Do not mention any dates, training cutoffs, or knowledge limitations. Just analyze the odds and write the briefing.",
-            messages: [
-              { role: "user", content: briefingPrompt },
-              { role: "assistant", content: "Here's the briefing based on the data:" },
-            ],
+            messages: [{ role: "user", content: briefingPrompt }],
           }),
         }).catch(() => null),
         Promise.resolve(null),
