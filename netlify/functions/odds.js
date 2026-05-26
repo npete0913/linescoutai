@@ -108,6 +108,7 @@ exports.handler = async (event) => {
 
     // Fetch pitchers AND team form from SportsDataIO BEFORE building game summaries
     const SDIO_KEY = process.env.SPORTSDATAIO_KEY;
+    try {
     if (SDIO_KEY) {
       try {
         const dateForApi = which === "tomorrow"
@@ -125,13 +126,18 @@ exports.handler = async (event) => {
         if (pitcherRes.ok) {
           const sdioData = await pitcherRes.json();
           if (Array.isArray(sdioData)) {
+            // Debug: log first game's fields
+            if (sdioData[0]) {
+              console.log("SDIO game fields:", Object.keys(sdioData[0]).filter(k => k.toLowerCase().includes("pitch")).join(", "));
+            }
             for (const game of sdioData) {
               const homeAbbr = (game.HomeTeam || "").toUpperCase();
               const awayAbbr = (game.AwayTeam || "").toUpperCase();
               const homeKey = SDIO_TEAM_MAP[homeAbbr];
               const awayKey = SDIO_TEAM_MAP[awayAbbr];
-              const homePitcher = game.HomeTeamProbablePitcher;
-              const awayPitcher = game.AwayTeamProbablePitcher;
+              // Try multiple field name variations
+              const homePitcher = game.HomeTeamProbablePitcher || game.ProbablePitcherHomeName || game.HomePitcher || (game.HomeStarter && game.HomeStarter.Name);
+              const awayPitcher = game.AwayTeamProbablePitcher || game.ProbablePitcherAwayName || game.AwayPitcher || (game.AwayStarter && game.AwayStarter.Name);
               if (homeKey && homePitcher) pitcherByTeam[homeKey] = homePitcher;
               if (awayKey && awayPitcher) pitcherByTeam[awayKey] = awayPitcher;
             }
@@ -165,6 +171,7 @@ exports.handler = async (event) => {
         console.log("SportsDataIO error:", e.message);
       }
     }
+    } catch (outerErr) { console.log("SportsDataIO outer error:", outerErr.message); }
 
     // Helper to get pitcher for a game
     const getPitchers = (home, away) => {
@@ -188,34 +195,7 @@ exports.handler = async (event) => {
       return { statusCode: 200, headers: { "Content-Type": "application/json", "x-requests-remaining": remaining || "" }, body: JSON.stringify({ games: [], briefing: "" }) };
     }
 
-    // STRICT DEDUPE: cross-reference Odds API matchups against SportsDataIO schedule
-    // SportsDataIO has the authoritative schedule, so use it to filter out bogus matchups
-    let sdioValidMatchups = null;
-    if (SDIO_KEY) {
-      try {
-        const dateForApi = which === "tomorrow"
-          ? new Date(Date.now() + 86400000).toISOString().split("T")[0]
-          : new Date().toISOString().split("T")[0];
-        const sdioUrl = `https://api.sportsdata.io/v3/mlb/scores/json/GamesByDate/${dateForApi}?key=${SDIO_KEY}`;
-        const sdioRes = await fetch(sdioUrl);
-        if (sdioRes.ok) {
-          const sdioGames = await sdioRes.json();
-          if (Array.isArray(sdioGames) && sdioGames.length > 0) {
-            sdioValidMatchups = new Set();
-            for (const g of sdioGames) {
-              const homeKey = SDIO_TEAM_MAP[(g.HomeTeam || "").toUpperCase()];
-              const awayKey = SDIO_TEAM_MAP[(g.AwayTeam || "").toUpperCase()];
-              if (homeKey && awayKey) {
-                sdioValidMatchups.add([homeKey, awayKey].sort().join("|"));
-              }
-            }
-            console.log(`SportsDataIO: ${sdioValidMatchups.size} valid matchups for ${dateForApi}`);
-          }
-        }
-      } catch (_) {}
-    }
-
-    // Dedupe matchups (keep first occurrence)
+// Dedupe matchups (keep first occurrence)
     const seenMatchups = new Set();
     const validatedOdds = [];
     for (const event of oddsData) {
