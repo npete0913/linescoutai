@@ -215,7 +215,7 @@ exports.handler = async (event) => {
       } catch (_) {}
     }
 
-    // Filter oddsData to only games SportsDataIO confirms exist today, AND dedupe
+    // Dedupe matchups (keep first occurrence)
     const seenMatchups = new Set();
     const validatedOdds = [];
     for (const event of oddsData) {
@@ -225,22 +225,18 @@ exports.handler = async (event) => {
       const awayKey = event.away_team.split(" ").pop().toLowerCase();
       const matchupKey = [homeKey, awayKey].sort().join("|");
 
-      // Reject duplicates
       if (seenMatchups.has(matchupKey)) continue;
-
-      // If SportsDataIO is available, reject games it doesn't recognize
-      if (sdioValidMatchups && !sdioValidMatchups.has(matchupKey)) {
-        console.log(`Rejected bogus matchup: ${event.away_team} @ ${event.home_team}`);
-        continue;
-      }
-
       seenMatchups.add(matchupKey);
       validatedOdds.push(event);
     }
 
-    // Replace oddsData with validated version for all downstream code
-    oddsData.length = 0;
-    oddsData.push(...validatedOdds);
+    // Reassign oddsData (use try-catch since it's const)
+    try {
+      oddsData.length = 0;
+      for (const e of validatedOdds) oddsData.push(e);
+    } catch (mutErr) {
+      console.log("oddsData mutation failed:", mutErr.message);
+    }
 
     // Step 2: streaks
     const { streakMap, fuzzyLookup, normalize } = buildStreakMap(scoresData);
