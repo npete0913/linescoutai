@@ -285,6 +285,135 @@
     .card-stats { gap: 14px; }
     .sc-val { font-size: 22px; }
   }
+
+  /* ── LIVE INTELLIGENCE ANIMATIONS ──────────────────────────── */
+  @keyframes ticker-flicker {
+    0%, 100% { opacity: 1; }
+    48% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0,255,135,0); }
+    50% { box-shadow: 0 0 16px 2px rgba(0,255,135,0.25); }
+  }
+  @keyframes value-shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes scan-line {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+  @keyframes radial-grow {
+    from { stroke-dashoffset: 283; }
+  }
+  @keyframes count-up {
+    from { transform: scale(0.92); opacity: 0.6; }
+    to { transform: scale(1); opacity: 1; }
+  }
+
+  .card { animation: fade-up 0.4s ease both; }
+  .card:nth-child(1) { animation-delay: 0.02s; }
+  .card:nth-child(2) { animation-delay: 0.06s; }
+  .card:nth-child(3) { animation-delay: 0.10s; }
+  .card:nth-child(4) { animation-delay: 0.14s; }
+  .card:nth-child(5) { animation-delay: 0.18s; }
+  .card:nth-child(n+6) { animation-delay: 0.22s; }
+
+  /* Live data pulsing dot */
+  .live-pulse {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    background: #00ff87;
+    border-radius: 50%;
+    margin-right: 6px;
+    animation: ticker-flicker 1.6s infinite;
+    box-shadow: 0 0 8px #00ff87;
+  }
+
+  /* Glowing value text for big edges */
+  .edge-strong {
+    background: linear-gradient(90deg, #00ff87, #00d4ff, #00ff87);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: value-shimmer 3s linear infinite;
+  }
+
+  /* Confidence radial meter */
+  .confidence-radial {
+    position: relative;
+    width: 80px;
+    height: 80px;
+  }
+  .confidence-radial svg {
+    transform: rotate(-90deg);
+    width: 100%;
+    height: 100%;
+  }
+  .confidence-radial circle.track {
+    fill: none;
+    stroke: rgba(255,255,255,0.06);
+    stroke-width: 6;
+  }
+  .confidence-radial circle.fill {
+    fill: none;
+    stroke-width: 6;
+    stroke-linecap: round;
+    stroke-dasharray: 283;
+    transition: stroke-dashoffset 1.2s cubic-bezier(0.2, 0.8, 0.2, 1), stroke 0.4s;
+    filter: drop-shadow(0 0 6px currentColor);
+  }
+  .confidence-radial .pct {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 24px;
+    letter-spacing: 0.02em;
+    animation: count-up 0.6s ease both;
+  }
+
+  /* Animated heat bar for stat cards */
+  .heat-bar {
+    height: 3px;
+    background: linear-gradient(90deg, rgba(0,255,135,0.0) 0%, rgba(0,255,135,0.6) 100%);
+    border-radius: 3px;
+    margin-top: 8px;
+    overflow: hidden;
+    position: relative;
+  }
+  .heat-bar::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%);
+    animation: scan-line 2.4s linear infinite;
+  }
+
+  /* Glowing badge for strong signals */
+  .signal-strong {
+    position: relative;
+  }
+  .signal-strong::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    background: inherit;
+    filter: blur(8px);
+    opacity: 0.35;
+    z-index: -1;
+  }
+
 </style>
 
   <!-- Open Graph / Social Preview -->
@@ -442,7 +571,16 @@ async function scan(which) {
     const briefing = payload.briefing || "";
     if (!Array.isArray(raw)) throw new Error('Unexpected response format');
 
-    allGames = processGames(raw);
+    // Dedupe games — same teams + same time = duplicate
+    const seenGames = new Set();
+    const dedupedRaw = raw.filter(e => {
+      if (!e || !e.home_team || !e.away_team) return false;
+      const key = [e.home_team, e.away_team].sort().join('|') + '_' + (e.commence_time || '').substring(0,16);
+      if (seenGames.has(key)) return false;
+      seenGames.add(key);
+      return true;
+    });
+    allGames = processGames(dedupedRaw);
     renderAll(which);
 
     // Show daily briefing
@@ -494,7 +632,7 @@ async function scan(which) {
       if (d.claudeError) showError("AI analysis error: " + d.claudeError);
     }
     const ts = new Date().toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
-    document.getElementById('updateTs').textContent = `Live data · ${ts}`;
+    document.getElementById('updateTs').innerHTML = `<span class="live-pulse"></span>LIVE DATA · ${ts}`;
     document.getElementById('gamesTodayLabel').textContent = which === 'tomorrow' ? 'GAMES TOMORROW' : 'GAMES TODAY';
 
   } catch(e) {
@@ -576,7 +714,7 @@ function processGames(raw) {
       totalAnalysis = `Over priced at ${fmt(overOdds)}, better than standard -110 — possible sharp over action on this game.`;
     }
 
-    return { home, away, time, commenceTime: event.commence_time || null, homeML, awayML, homeRL, awayRL, flags, analysis, total, overOdds, underOdds, totalFlags, totalAnalysis, aiAnalysis: event.aiAnalysis || null, homeStreak: event.homeStreak || null, awayStreak: event.awayStreak || null, weather: event.weather || null, bookOdds: event.bookOdds || {}, pitchers: event.pitchers || null, altLines: event.altLines || null };
+    return { home, away, time, commenceTime: event.commence_time || null, homeML, awayML, homeRL, awayRL, flags, analysis, total, overOdds, underOdds, totalFlags, totalAnalysis, aiAnalysis: event.aiAnalysis || null, homeStreak: event.homeStreak || null, awayStreak: event.awayStreak || null, weather: event.weather || null, bookOdds: event.bookOdds || {}, pitchers: event.pitchers || null, altLines: event.altLines || null, homeForm: event.homeForm || null, awayForm: event.awayForm || null };
   });
 }
 
@@ -746,8 +884,20 @@ function buildTopPlays(games) {
     }
   }
 
-  // Sort by confidence desc, take top 3
-  return candidates.sort((a, b) => b.confidence - a.confidence).slice(0, 3);
+  // Sort by confidence, then dedupe by team, then take top 3
+  const sorted = candidates.sort((a, b) => b.confidence - a.confidence);
+  const seenTeams = new Set();
+  const seenMatchups = new Set();
+  const deduped = [];
+  for (const c of sorted) {
+    const matchupKey = [c.team, c.opponent].sort().join('|');
+    if (seenTeams.has(c.team) || seenMatchups.has(matchupKey)) continue;
+    seenTeams.add(c.team);
+    seenMatchups.add(matchupKey);
+    deduped.push(c);
+    if (deduped.length === 3) break;
+  }
+  return deduped;
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────────────
@@ -929,6 +1079,29 @@ function renderRL(g) {
           <span style="color:#6a7a8a">${g.home.split(' ').pop()}:</span>
           <span style="color:${g.pitchers.home==='TBD'?'#3a4a5a':'#c8d8e8'};font-weight:600">${g.pitchers.home}</span>
         </div>` : ''}
+        ${g.homeForm || g.awayForm ? `<div style="display:flex;gap:14px;align-items:center;margin-bottom:10px;font-family:monospace;font-size:10px;flex-wrap:wrap">
+          ${g.awayForm ? `<span style="display:flex;gap:6px;align-items:center">
+            <span style="color:#6a7a8a">${g.away.split(' ').pop()}:</span>
+            <span style="color:#aab5c0">${g.awayForm.wins}-${g.awayForm.losses}</span>
+            <span style="color:#3a4550">·</span>
+            <span style="color:#6a7580;font-size:9px">L10</span>
+            <span style="color:${g.awayForm.last10W >= 6 ? '#00ff87' : g.awayForm.last10W <= 3 ? '#ff4757' : '#aab5c0'}">${g.awayForm.last10W}-${g.awayForm.last10L}</span>
+            <span style="color:#3a4550">·</span>
+            <span style="color:#6a7580;font-size:9px">RD</span>
+            <span style="color:${g.awayForm.runDiff > 0 ? '#00ff87' : g.awayForm.runDiff < 0 ? '#ff4757' : '#aab5c0'}">${g.awayForm.runDiff > 0 ? '+' : ''}${g.awayForm.runDiff}</span>
+          </span>` : ''}
+          ${g.homeForm ? `<span style="color:#2a3540">|</span>
+          <span style="display:flex;gap:6px;align-items:center">
+            <span style="color:#6a7a8a">${g.home.split(' ').pop()}:</span>
+            <span style="color:#aab5c0">${g.homeForm.wins}-${g.homeForm.losses}</span>
+            <span style="color:#3a4550">·</span>
+            <span style="color:#6a7580;font-size:9px">L10</span>
+            <span style="color:${g.homeForm.last10W >= 6 ? '#00ff87' : g.homeForm.last10W <= 3 ? '#ff4757' : '#aab5c0'}">${g.homeForm.last10W}-${g.homeForm.last10L}</span>
+            <span style="color:#3a4550">·</span>
+            <span style="color:#6a7580;font-size:9px">RD</span>
+            <span style="color:${g.homeForm.runDiff > 0 ? '#00ff87' : g.homeForm.runDiff < 0 ? '#ff4757' : '#aab5c0'}">${g.homeForm.runDiff > 0 ? '+' : ''}${g.homeForm.runDiff}</span>
+          </span>` : ''}
+        </div>` : ''}
         <div style="display:flex;gap:5px;flex-wrap:wrap">
         </div>
         <div class="badges">${g.flags.map(badgeHTML).join('')}</div>
@@ -952,7 +1125,7 @@ function renderRL(g) {
           <div class="sc"><div class="sc-label">${favShort} -1.5</div><div class="sc-val ${favRL>=0?'cg':'ca'}">${fmt(favRL)}</div></div>
           ${streakCell('STREAK', favStreak)}
           ${imp2?`<div class="sc"><div class="sc-label">WIN%</div><div class="sc-val cm">${imp2}%</div></div>`:''}
-          ${edge!==null?`<div class="sc"><div class="sc-label">EDGE</div><div class="sc-val ${ec}">${edge>=0?'+':''}${edge}%</div></div>`:''}
+          ${edge!==null?`<div class="sc"><div class="sc-label">EDGE</div><div class="sc-val ${ec} ${edge>=15?'edge-strong':''}">${edge>=0?'+':''}${edge}%</div></div>`:''}
         </div>`;
       })()}
     </div>
@@ -1120,35 +1293,79 @@ function renderRecordBadge() {
 function renderTopPlay(play, idx) {
   const confColor = play.confidence >= 75 ? '#00ff87' : play.confidence >= 55 ? '#ffb700' : '#747d8c';
   const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉';
-  const barWidth = play.confidence;
-  return `<div class="card card-default" style="border-color:${play.confidence>=75?'rgba(0,255,135,0.25)':play.confidence>=55?'rgba(255,183,0,0.2)':'rgba(255,255,255,0.08)'}">
+  const confidenceLabel = play.confidence >= 80 ? 'HIGH CONVICTION' : play.confidence >= 65 ? 'STRONG SIGNAL' : play.confidence >= 50 ? 'NOTABLE EDGE' : 'WATCH LIST';
+  // Radial dash math: circumference = 2 * π * 45 ≈ 283
+  const dashOffset = 283 - (283 * play.confidence / 100);
+  // Reword raw reasons into intel speak
+  const upgradedReasons = play.reasons.map(r => upgradeSignalLanguage(r));
+
+  return `<div class="card card-default" style="border-color:${play.confidence>=75?'rgba(0,255,135,0.25)':play.confidence>=55?'rgba(255,183,0,0.2)':'rgba(255,255,255,0.08)'};position:relative;overflow:hidden">
     <div class="card-accent" style="background:linear-gradient(90deg,${confColor},transparent)"></div>
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
-      <div style="flex:1;min-width:200px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-          <span style="font-size:22px">${medal}</span>
+    ${play.confidence >= 75 ? '<div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,'+confColor+',transparent);animation:scan-line 3s linear infinite;opacity:0.5"></div>' : ''}
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px">
+      <div style="flex:1;min-width:240px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+          <span style="font-size:26px;filter:drop-shadow(0 0 6px ${confColor})">${medal}</span>
           <div>
-            <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:#fff;letter-spacing:0.03em">${play.bet}</div>
-            <div style="font-family:monospace;font-size:10px;color:#3a4050">${play.team}${play.opponent?' vs '+play.opponent:''} · ${play.time}</div>
+            <div style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:#fff;letter-spacing:0.03em;line-height:1.1">${play.bet}</div>
+            <div style="font-family:monospace;font-size:10px;color:#5a6570;margin-top:4px">
+              <span class="live-pulse"></span>${play.team}${play.opponent?' vs '+play.opponent:''} · ${play.time}
+            </div>
           </div>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-          <span style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:3px;padding:2px 8px;font-family:monospace;font-size:9px;color:#555;letter-spacing:0.08em">${play.type}</span>
-          ${play.reasons.map(r=>`<span style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:3px;padding:2px 8px;font-family:monospace;font-size:9px;color:#444">${r}</span>`).join('')}
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">
+          <span style="background:linear-gradient(135deg,${confColor}33,${confColor}11);border:1px solid ${confColor}55;border-radius:3px;padding:3px 10px;font-family:monospace;font-size:9px;color:${confColor};letter-spacing:0.1em;font-weight:600">⚡ ${confidenceLabel}</span>
+          ${upgradedReasons.map(r=>`<span style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:3px;padding:3px 10px;font-family:monospace;font-size:9px;color:#7a8590">${r}</span>`).join('')}
         </div>
       </div>
-      <div style="text-align:center;min-width:90px">
-        <div style="font-family:monospace;font-size:9px;color:#3a4050;letter-spacing:0.1em;margin-bottom:4px">CONFIDENCE</div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:42px;line-height:1;color:${confColor}">${play.confidence}%</div>
-        <div style="font-family:monospace;font-size:9px;color:#3a4050;margin-top:2px">ODDS ${play.odds}</div>
+      <!-- Confidence radial meter -->
+      <div class="confidence-radial" style="flex-shrink:0">
+        <svg viewBox="0 0 100 100">
+          <circle class="track" cx="50" cy="50" r="45"/>
+          <circle class="fill" cx="50" cy="50" r="45" stroke="${confColor}" style="stroke-dashoffset:${dashOffset}"/>
+        </svg>
+        <div class="pct" style="color:${confColor}">${play.confidence}%</div>
+      </div>
+      <div style="text-align:center;min-width:60px">
+        <div style="font-family:monospace;font-size:8px;color:#3a4050;letter-spacing:0.15em;margin-bottom:2px">ODDS</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:${play.odds && play.odds.startsWith('+') ? '#00ff87' : '#aab5c0'}">${play.odds}</div>
       </div>
     </div>
-    <!-- Confidence bar -->
-    <div style="height:3px;background:rgba(255,255,255,0.05);border-radius:2px;margin:8px 0 12px">
-      <div style="height:3px;width:${barWidth}%;background:${confColor};border-radius:2px;transition:width 0.6s ease"></div>
-    </div>
-    ${play.analysis?`<div class="card-note">${play.analysis}</div>`:''}
+    ${play.analysis?`<div class="card-note" style="margin-top:14px;border-top:1px solid rgba(255,255,255,0.05);padding-top:12px">${play.analysis}</div>`:''}
   </div>`;
+}
+
+// ── INTELLIGENCE-STYLE SIGNAL LANGUAGE ────────────────────────────────────────
+function upgradeSignalLanguage(reason) {
+  const upgrades = {
+    'sharp over': 'Heavy sharp action detected',
+    'SHARP OVER': 'Heavy sharp action detected',
+    'sharp money': 'Sharp money flow confirmed',
+    'short line': 'Heavy chalk · trap territory',
+    'SHORT LINE': 'Heavy chalk · trap territory',
+    'run line value': 'Plus-money mispricing identified',
+    'RUN LINE VALUE': 'Plus-money mispricing identified',
+    'hot streak': 'Momentum surge · 2+ wins',
+    'HOT STREAK': 'Momentum surge · 2+ wins',
+    'fade candidate': 'Reverse line movement candidate',
+    'FADE CANDIDATE': 'Reverse line movement candidate',
+    'over value': 'Total under market expectation',
+    'OVER VALUE': 'Total under market expectation',
+    'low total': 'Compressed total · pitching matchup',
+    'LOW TOTAL': 'Compressed total · pitching matchup',
+    'wind out': 'Wind favors offense',
+    'WIND OUT': 'Wind favors offense',
+    'wind in': 'Wind suppresses scoring',
+    'WIND IN': 'Wind suppresses scoring',
+    'rain risk': 'Weather variance flag',
+    'RAIN RISK': 'Weather variance flag',
+  };
+  // Try direct match
+  if (upgrades[reason]) return upgrades[reason];
+  // Try matching on substring (e.g. "+18% edge on run line vs ML")
+  if (/edge.*run line/i.test(reason)) return reason.replace(/edge on run line vs ML/i, 'edge over moneyline');
+  if (/books show/i.test(reason)) return reason.replace(/books show/i, 'book consensus:');
+  return reason;
 }
 
 // ── UI HELPERS ────────────────────────────────────────────────────────────────
