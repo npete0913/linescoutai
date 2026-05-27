@@ -417,7 +417,7 @@ Respond ONLY with a JSON object mapping the exact game numbers shown above to an
 
 ${gamesForBriefing}
 
-Write a 3-4 sentence briefing covering the biggest value spot with specific odds, any notable signals, and one play of the day. Use the actual numbers above. Direct, no preamble.`;
+Write a 3-4 sentence intelligence briefing in the style of a Wall Street trading desk note. Identify the highest-conviction value spot with specific odds, surface anomalies in the market (sharp money flows, reverse line movement, mispricing), and conclude with one actionable play. Use language like 'detected', 'flagged', 'tracking', 'conviction', 'anomaly'. Be sharp, confident, intelligence-style. No preamble.`;
 
       const [bRes, pRes] = await Promise.all([
         fetch("https://api.anthropic.com/v1/messages", {
